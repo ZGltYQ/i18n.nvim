@@ -45,7 +45,7 @@ No more copying text to Google Translate manually! 🎉
 
 ```lua
 {
-  'your-username/i18n.nvim',
+  'ZGltYQ/i18n.nvim',
   dependencies = {
     'nvim-treesitter/nvim-treesitter',
     'nvim-lua/plenary.nvim',
@@ -62,7 +62,7 @@ No more copying text to Google Translate manually! 🎉
 
 ```lua
 use {
-  'your-username/i18n.nvim',
+  'ZGltYQ/i18n.nvim',
   requires = {
     'nvim-treesitter/nvim-treesitter',
     'nvim-lua/plenary.nvim',
