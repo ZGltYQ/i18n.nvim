@@ -1,0 +1,20 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/home/zgltyq/i18n.nvim/logs/.b5ba27d3b59cf94a0aa9ad8e294d598dd8571310-audit.json",
+    "files": [
+        {
+            "date": 1761924785385,
+            "name": "/home/zgltyq/i18n.nvim/logs/mcp-puppeteer-2025-10-31.log",
+            "hash": "8783bd242fa14af4d98b68e6b760432ee4bcfd4e02c35dd4cd848262d60950d6"
+        },
+        {
+            "date": 1761948329700,
+            "name": "/home/zgltyq/i18n.nvim/logs/mcp-puppeteer-2025-11-01.log",
+            "hash": "317b54cbac7110b845a73cc7a48743d2c634267ac3d39ee497f73261040b4b1f"
+        }
+    ],
+    "hashType": "sha256"
+}
