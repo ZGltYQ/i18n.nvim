@@ -270,6 +270,91 @@ local function add_from_selection(args)
   editor.add_from_selection(args.buf)
 end
 
+--- Debug: Show all loaded keys from translation files
+local function debug_keys(args)
+  local source = translation_source.get_source(args.buf)
+  if not source then
+    utils.notify('No translation source found', vim.log.levels.ERROR)
+    return
+  end
+
+  -- Collect all unique keys
+  local all_keys = {}
+  for lang, file in pairs(source.files) do
+    local function collect_keys(tbl, prefix)
+      for key, value in pairs(tbl) do
+        local full_key = prefix == '' and key or (prefix .. '.' .. key)
+        if type(value) == 'table' then
+          collect_keys(value, full_key)
+        else
+          if not all_keys[full_key] then
+            all_keys[full_key] = {}
+          end
+          all_keys[full_key][lang] = true
+        end
+      end
+    end
+    collect_keys(file.content, '')
+  end
+
+  -- Build message
+  local lines = { 'All Translation Keys:', '' }
+  local sorted_keys = vim.tbl_keys(all_keys)
+  table.sort(sorted_keys)
+
+  for _, key in ipairs(sorted_keys) do
+    local langs = vim.tbl_keys(all_keys[key])
+    table.sort(langs)
+    table.insert(lines, string.format('  %s [%s]', key, table.concat(langs, ', ')))
+  end
+
+  if #sorted_keys == 0 then
+    table.insert(lines, '  No keys found!')
+  end
+
+  table.insert(lines, '')
+  table.insert(lines, string.format('Total: %d keys', #sorted_keys))
+
+  -- Show in floating window
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].bufhidden = 'wipe'
+
+  local width = 80
+  local height = math.min(#lines + 2, 30)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor',
+    width = width,
+    height = height,
+    row = 2,
+    col = (vim.o.columns - width) / 2,
+    style = 'minimal',
+    border = 'rounded',
+  })
+
+  -- Close on any key press
+  vim.keymap.set('n', '<Esc>', function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
+
+  vim.keymap.set('n', 'q', function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
+
+  -- Close when leaving the window
+  vim.api.nvim_create_autocmd({ 'BufLeave', 'WinLeave' }, {
+    buffer = buf,
+    once = true,
+    callback = function()
+      if vim.api.nvim_win_is_valid(win) then
+        vim.api.nvim_win_close(win, true)
+      end
+    end,
+  })
+end
+
 --- Create user commands
 function M.setup()
   vim.api.nvim_create_user_command('I18nSetLang', set_lang, {
@@ -340,6 +425,10 @@ function M.setup()
   vim.api.nvim_create_user_command('I18nAddFromSelection', add_from_selection, {
     range = true,
     desc = 'Add translation from selected text and auto-translate to all languages',
+  })
+
+  vim.api.nvim_create_user_command('I18nDebugKeys', debug_keys, {
+    desc = 'Debug: Show all loaded translation keys',
   })
 end
 

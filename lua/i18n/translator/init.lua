@@ -132,7 +132,11 @@ function M.translate_missing_for_key(key, service, bufnr)
     local error_msg = string.format(
       'No source translation found for key: %s\n' ..
       'Available languages: [%s]\n' ..
-      'Key exists in: [%s]',
+      'Key exists in: [%s]\n\n' ..
+      'To fix this:\n' ..
+      '1. Manually add the key to a translation file, then run :I18nReload\n' ..
+      '2. Or select text and use :I18nAddFromSelection to create it\n' ..
+      '3. Or check if the key name matches (case-sensitive)',
       key,
       table.concat(all_langs, ', '),
       #has_langs > 0 and table.concat(has_langs, ', ') or 'none'
