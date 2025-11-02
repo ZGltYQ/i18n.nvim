@@ -101,11 +101,13 @@ local function find_translation_files(root_dir)
 
       for _, check_pattern in ipairs(conf.translation_source) do
         -- Convert glob to Lua pattern
+        -- Handle file extension glob: .{json,yml,yaml} → any word extension
         local lua_pattern = check_pattern
-          :gsub('%.', '%%.')
-          :gsub('%*%*/', '.-/')
-          :gsub('%*', '[^/]*')
-          :gsub('%.%{json,yml,yaml%}', '%%.%%w+')
+          :gsub('%.%{[^}]+%}', '__EXT__')   -- Placeholder for extension glob
+          :gsub('%.', '%%.')                 -- Escape remaining literal dots
+          :gsub('__EXT__', '%%.[^/]+$')      -- Extension: dot + any non-slash chars at end
+          :gsub('%*%*/', '.-/')              -- ** → any path
+          :gsub('%*', '[^/]*')               -- * → any filename chars
 
         if relative:match(lua_pattern) then
           local lang = utils.extract_language(file_path)
@@ -177,9 +179,18 @@ function M.reload(root_dir)
   -- Clear cache
   cache[root_dir] = nil
 
-  -- Reload
-  M.get_source()
-  utils.notify('Translation files reloaded')
+  -- Reload by directly creating the source
+  local files = find_translation_files(root_dir)
+
+  if not vim.tbl_isempty(files) then
+    cache[root_dir] = {
+      root_dir = root_dir,
+      files = files,
+    }
+    utils.notify('Translation files reloaded')
+  else
+    utils.notify('No translation files found', vim.log.levels.WARN)
+  end
 end
 
 --- Get translation for a key
