@@ -1,6 +1,7 @@
 local config = require('i18n.config')
 local utils = require('i18n.utils')
 local virtual_text = require('i18n.virtual_text')
+local diagnostics = require('i18n.diagnostics')
 local editor = require('i18n.editor')
 local translator = require('i18n.translator')
 local translation_source = require('i18n.translation_source')
@@ -98,15 +99,33 @@ local function virtual_text_toggle(args)
   virtual_text.toggle(args.buf)
 end
 
+--- Enable diagnostics
+local function diagnostics_enable(args)
+  diagnostics.enable(args.buf)
+end
+
+--- Disable diagnostics
+local function diagnostics_disable(args)
+  diagnostics.disable(args.buf)
+end
+
+--- Toggle diagnostics
+local function diagnostics_toggle(args)
+  diagnostics.toggle(args.buf)
+end
+
 --- Reload translation files
 local function reload(args)
   translation_source.reload()
   utils.notify('Translation files reloaded')
 
-  -- Refresh virtual text for all buffers
+  -- Refresh virtual text and diagnostics for all buffers
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if virtual_text.is_enabled(bufnr) then
       virtual_text.refresh(bufnr)
+    end
+    if diagnostics.is_enabled(bufnr) then
+      diagnostics.refresh(bufnr)
     end
   end
 end
@@ -233,6 +252,18 @@ function M.setup()
 
   vim.api.nvim_create_user_command('I18nVirtualTextToggle', virtual_text_toggle, {
     desc = 'Toggle virtual text display',
+  })
+
+  vim.api.nvim_create_user_command('I18nDiagnosticsEnable', diagnostics_enable, {
+    desc = 'Enable LSP diagnostics for missing translations',
+  })
+
+  vim.api.nvim_create_user_command('I18nDiagnosticsDisable', diagnostics_disable, {
+    desc = 'Disable LSP diagnostics for missing translations',
+  })
+
+  vim.api.nvim_create_user_command('I18nDiagnosticsToggle', diagnostics_toggle, {
+    desc = 'Toggle LSP diagnostics for missing translations',
   })
 
   vim.api.nvim_create_user_command('I18nReload', reload, {

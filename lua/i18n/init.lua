@@ -24,20 +24,27 @@ function M.setup(opts)
   local virtual_text = require('i18n.virtual_text')
   virtual_text.setup_all()
 
+  -- Setup diagnostics for all buffers
+  local diagnostics = require('i18n.diagnostics')
+  diagnostics.setup_all()
+
   -- Set up autocommands
   local group = vim.api.nvim_create_augroup('i18n', { clear = true })
 
-  -- Enable virtual text for new JavaScript/TypeScript buffers
+  -- Enable virtual text and diagnostics for new JavaScript/TypeScript buffers
   vim.api.nvim_create_autocmd('FileType', {
     group = group,
     pattern = { 'javascript', 'typescript', 'javascriptreact', 'typescriptreact' },
     callback = function(args)
       local conf = config.get()
-      if conf.virtual_text.enabled then
-        vim.defer_fn(function()
+      vim.defer_fn(function()
+        if conf.virtual_text.enabled then
           virtual_text.enable(args.buf)
-        end, 100) -- Small delay to ensure treesitter is loaded
-      end
+        end
+        if conf.diagnostic.enabled then
+          diagnostics.enable(args.buf)
+        end
+      end, 100) -- Small delay to ensure treesitter is loaded
     end,
   })
 
@@ -170,6 +177,27 @@ end
 function M.add_from_selection(bufnr)
   local editor = require('i18n.editor')
   editor.add_from_selection(bufnr)
+end
+
+--- Enable diagnostics for buffer
+---@param bufnr? number Buffer number
+function M.enable_diagnostics(bufnr)
+  local diagnostics = require('i18n.diagnostics')
+  diagnostics.enable(bufnr)
+end
+
+--- Disable diagnostics for buffer
+---@param bufnr? number Buffer number
+function M.disable_diagnostics(bufnr)
+  local diagnostics = require('i18n.diagnostics')
+  diagnostics.disable(bufnr)
+end
+
+--- Toggle diagnostics for buffer
+---@param bufnr? number Buffer number
+function M.toggle_diagnostics(bufnr)
+  local diagnostics = require('i18n.diagnostics')
+  diagnostics.toggle(bufnr)
 end
 
 return M
