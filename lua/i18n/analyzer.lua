@@ -34,31 +34,22 @@ end
 ---@param lang string Language for query parsing
 ---@return vim.treesitter.Query[] queries
 local function get_queries(lang)
-  -- Map language to appropriate parser language for queries
-  -- JSX/TSX files need the tsx parser for JSX node types
-  local query_lang = lang
-  local is_jsx = false
-
-  if lang == 'javascriptreact' or lang == 'typescriptreact' then
-    query_lang = 'tsx'
-    is_jsx = true
-  elseif lang == 'javascript' or lang == 'typescript' then
-    query_lang = 'typescript'
-    is_jsx = false
-  end
+  -- Determine if this is a JSX/TSX file and which query files to load
+  -- IMPORTANT: Use the same language name for query parsing as the buffer's parser
+  local is_jsx = lang == 'javascriptreact' or lang == 'typescriptreact'
 
   local query_dir = get_query_dir()
   local queries = {}
 
   -- Always load i18next.scm (works with all JS/TS files)
-  local i18next_query = load_query(query_dir .. '/i18next.scm', query_lang)
+  local i18next_query = load_query(query_dir .. '/i18next.scm', lang)
   if i18next_query then
     table.insert(queries, i18next_query)
   end
 
   -- Only load react-i18next.scm for JSX/TSX files
   if is_jsx then
-    local react_query = load_query(query_dir .. '/react-i18next.scm', query_lang)
+    local react_query = load_query(query_dir .. '/react-i18next.scm', lang)
     if react_query then
       table.insert(queries, react_query)
     end
@@ -88,15 +79,16 @@ end
 
 --- Extract translation key from capture node
 ---@param node TSNode
+---@param bufnr number Buffer number
 ---@return string|nil key
-local function extract_key_from_node(node)
-  local text = vim.treesitter.get_node_text(node, 0)
+local function extract_key_from_node(node, bufnr)
+  local text = vim.treesitter.get_node_text(node, bufnr)
 
   if not text then
     return nil
   end
 
-  -- Remove quotes from string
+  -- Remove quotes from string (in case they're included)
   text = text:gsub('^["\']', ''):gsub('["\']$', '')
 
   return text
@@ -149,18 +141,17 @@ function M.get_key_at_position(bufnr, row, col)
       local capture_name = query.captures[id]
 
       if capture_name == 'i18n.key' then
-        -- Check if this node contains or is contained by our cursor node
+        -- Check if this node contains the cursor position
+        -- Note: Tree-sitter ranges are [start, end) where end is exclusive
         local match_start_row, match_start_col, match_end_row, match_end_col = match_node:range()
 
-        if match_start_row <= row and row <= match_end_row then
-          if match_start_row == row and match_start_col > col then
-            goto continue
-          end
-          if match_end_row == row and match_end_col < col then
-            goto continue
-          end
+        -- Check if cursor is within the node's range [start, end)
+        local in_row_range = match_start_row <= row and row <= match_end_row
+        local before_start = match_start_row == row and col < match_start_col
+        local after_end = match_end_row == row and col >= match_end_col
 
-          local key = extract_key_from_node(match_node)
+        if in_row_range and not before_start and not after_end then
+          local key = extract_key_from_node(match_node, bufnr)
           if key then
             return key
           end
@@ -212,7 +203,7 @@ function M.get_all_keys(bufnr)
       local capture_name = query.captures[id]
 
       if capture_name == 'i18n.key' then
-        local key = extract_key_from_node(node)
+        local key = extract_key_from_node(node, bufnr)
 
         if key then
           local start_row, start_col, end_row, end_col = node:range()
