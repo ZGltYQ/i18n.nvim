@@ -40,9 +40,11 @@
 ; Matches: t('key'), i18n.t('key'), i18next.t('key'), etc.
 (call_expression
   function: [
-    (identifier)
-    (member_expression)
-  ] @i18n.t_func_name
+    (identifier) @i18n.t_func_name (#match? @i18n.t_func_name "^t$")
+    (member_expression
+      property: (property_identifier) @i18n.t_func_name (#eq? @i18n.t_func_name "t")
+    )
+  ]
   arguments: (arguments
     (string
       (string_fragment) @i18n.key

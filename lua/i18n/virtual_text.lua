@@ -34,11 +34,34 @@ local function create_virtual_text(bufnr, key_location)
     translation = utils.truncate(translation, conf.virtual_text.max_length)
   end
 
-  -- Build virtual text with format: <: Translation>
-  local virt_text = conf.virtual_text.prefix .. translation .. conf.virtual_text.suffix
+  -- Get translation status (which languages have this key)
+  local all_langs = translation_source.get_languages(bufnr)
+  local missing_langs = translation_source.get_missing_languages(key_location.key, bufnr)
+
+  -- Build language status indicator
+  local lang_status = ''
+  if #all_langs > 0 then
+    local available_langs = {}
+    for _, lang in ipairs(all_langs) do
+      if not vim.tbl_contains(missing_langs, lang) then
+        table.insert(available_langs, lang)
+      end
+    end
+
+    if #available_langs > 0 then
+      lang_status = ' [' .. table.concat(available_langs, ',') .. ']'
+    end
+
+    if #missing_langs > 0 then
+      lang_status = lang_status .. ' [missing: ' .. table.concat(missing_langs, ',') .. ']'
+    end
+  end
+
+  -- Build virtual text with format: <: Translation [en,es] [missing: fr]>
+  local virt_text = conf.virtual_text.prefix .. translation .. lang_status .. conf.virtual_text.suffix
 
   -- Set extmark inline at the end of the translation key (before closing quote)
-  -- This makes it appear as: t("Hello<: Translation>") instead of t("Hello") → Translation
+  -- This makes it appear as: t("Hello<: Translation [en,es]>") instead of t("Hello") → Translation
   vim.api.nvim_buf_set_extmark(bufnr, namespace, key_location.row, key_location.end_col, {
     virt_text = { { virt_text, conf.virtual_text.hl_group } },
     virt_text_pos = 'inline',
