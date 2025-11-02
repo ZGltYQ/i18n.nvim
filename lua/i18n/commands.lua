@@ -51,7 +51,53 @@ local function translate_buffer(args)
     service = nil -- Use default service
   end
 
-  translator.translate_buffer(service)
+  -- Check if there are any translation keys in the buffer
+  local keys = analyzer.get_all_keys(args.buf)
+
+  if #keys > 0 then
+    -- There are keys, translate missing translations
+    translator.translate_buffer(service, args.buf)
+  else
+    -- No keys in buffer, offer to create translation from word under cursor
+    utils.notify('No translation keys found in buffer', vim.log.levels.WARN)
+
+    -- Get word under cursor
+    local word = vim.fn.expand('<cword>')
+
+    if word == '' then
+      utils.notify('No word under cursor. Use visual selection or move cursor to a word.', vim.log.levels.WARN)
+      return
+    end
+
+    -- Ask for translation key
+    vim.ui.input({
+      prompt = string.format('Create translation key for "%s": ', word),
+      default = '',
+    }, function(key)
+      if not key or key == '' then
+        return
+      end
+
+      -- Get available languages
+      local source = translation_source.get_source(args.buf)
+      if not source then
+        utils.notify('No translation source found', vim.log.levels.ERROR)
+        return
+      end
+
+      local languages = vim.tbl_keys(source.files)
+      if #languages == 0 then
+        utils.notify('No translation files found', vim.log.levels.ERROR)
+        return
+      end
+
+      local conf = config.get()
+      local primary_lang = conf.primary_language
+
+      -- Use editor._perform_auto_translation to create and translate
+      editor._perform_auto_translation(key, word, primary_lang, languages, args.buf)
+    end)
+  end
 end
 
 --- Translate all missing keys in project
@@ -182,11 +228,13 @@ local function show_info(args)
   -- Show in floating window
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].bufhidden = 'wipe'
 
   local width = 60
   local height = #lines + 2
 
-  local win = vim.api.nvim_open_win(buf, false, {
+  local win = vim.api.nvim_open_win(buf, true, {
     relative = 'cursor',
     width = width,
     height = height,
@@ -197,15 +245,22 @@ local function show_info(args)
   })
 
   -- Close on any key press
-  vim.api.nvim_buf_set_keymap(buf, 'n', '<Esc>', '', {
-    callback = function()
-      vim.api.nvim_win_close(win, true)
-    end,
-  })
+  vim.keymap.set('n', '<Esc>', function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
 
-  vim.api.nvim_buf_set_keymap(buf, 'n', 'q', '', {
+  vim.keymap.set('n', 'q', function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
+
+  -- Close when leaving the window
+  vim.api.nvim_create_autocmd({ 'BufLeave', 'WinLeave' }, {
+    buffer = buf,
+    once = true,
     callback = function()
-      vim.api.nvim_win_close(win, true)
+      if vim.api.nvim_win_is_valid(win) then
+        vim.api.nvim_win_close(win, true)
+      end
     end,
   })
 end
