@@ -37,24 +37,30 @@ local function get_queries(lang)
   -- Map language to appropriate parser language for queries
   -- JSX/TSX files need the tsx parser for JSX node types
   local query_lang = lang
+  local is_jsx = false
+
   if lang == 'javascriptreact' or lang == 'typescriptreact' then
     query_lang = 'tsx'
+    is_jsx = true
   elseif lang == 'javascript' or lang == 'typescript' then
     query_lang = 'typescript'
+    is_jsx = false
   end
 
   local query_dir = get_query_dir()
-  local query_files = {
-    query_dir .. '/i18next.scm',
-    query_dir .. '/react-i18next.scm',
-  }
-
   local queries = {}
 
-  for _, file in ipairs(query_files) do
-    local query = load_query(file, query_lang)
-    if query then
-      table.insert(queries, query)
+  -- Always load i18next.scm (works with all JS/TS files)
+  local i18next_query = load_query(query_dir .. '/i18next.scm', query_lang)
+  if i18next_query then
+    table.insert(queries, i18next_query)
+  end
+
+  -- Only load react-i18next.scm for JSX/TSX files
+  if is_jsx then
+    local react_query = load_query(query_dir .. '/react-i18next.scm', query_lang)
+    if react_query then
+      table.insert(queries, react_query)
     end
   end
 
