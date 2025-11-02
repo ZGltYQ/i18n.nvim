@@ -48,8 +48,8 @@ M.defaults = {
   virtual_text = {
     enabled = true,
     max_length = 80,
-    prefix = ' → ',
-    suffix = '',
+    prefix = '<: ',
+    suffix = '>',
     hl_group = 'Comment',
     fallback_text = '[Missing]',
   },

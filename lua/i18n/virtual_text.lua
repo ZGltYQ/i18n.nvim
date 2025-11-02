@@ -34,13 +34,14 @@ local function create_virtual_text(bufnr, key_location)
     translation = utils.truncate(translation, conf.virtual_text.max_length)
   end
 
-  -- Build virtual text
+  -- Build virtual text with format: <: Translation>
   local virt_text = conf.virtual_text.prefix .. translation .. conf.virtual_text.suffix
 
-  -- Set extmark
+  -- Set extmark inline at the end of the translation key (before closing quote)
+  -- This makes it appear as: t("Hello<: Translation>") instead of t("Hello") → Translation
   vim.api.nvim_buf_set_extmark(bufnr, namespace, key_location.row, key_location.end_col, {
     virt_text = { { virt_text, conf.virtual_text.hl_group } },
-    virt_text_pos = 'eol',
+    virt_text_pos = 'inline',
     hl_mode = 'combine',
   })
 end

@@ -127,16 +127,22 @@ function M.tbl_set(tbl, key_parts, value)
   current[key_parts[#key_parts]] = value
 end
 
---- Extract language from filename
----@param filename string Filename (e.g., "en.json", "locales/es.yaml")
+--- Extract language from filename or parent directory
+---@param filename string Filename (e.g., "en.json", "locales/es.yaml", "locales/en/translation.json")
 ---@return string|nil lang Language code or nil if not detected
 function M.extract_language(filename)
-  -- Extract basename without extension
+  -- First, try to extract basename without extension (for files like "en.json")
   local basename = vim.fn.fnamemodify(filename, ':t:r')
 
   -- Common language codes (2-5 characters)
   if basename:match('^[a-z][a-z]$') or basename:match('^[a-z][a-z][-_][A-Z][A-Z]$') then
     return basename
+  end
+
+  -- If that didn't work, try parent directory name (for files like "locales/en/translation.json")
+  local parent_dir = vim.fn.fnamemodify(filename, ':h:t')
+  if parent_dir:match('^[a-z][a-z]$') or parent_dir:match('^[a-z][a-z][-_][A-Z][A-Z]$') then
+    return parent_dir
   end
 
   return nil
