@@ -1,38 +1,54 @@
 ; i18next translation function calls
 ; Matches: t('key'), i18n.t('key'), i18next.t('key')
 
-; Standard t() function call
-(call_expression
-  function: (identifier) @_function (#eq? @_function "t")
-  arguments: (arguments
-    (string
-      (string_fragment) @i18n.key)))
+; getFixedT function call
+(variable_declarator
+  name: (identifier) @i18n.t_func_name
+  value: (call_expression
+    function: [
+      (identifier)
+      (member_expression)
+    ] @get_fixed_t_func (#match? @get_fixed_t_func "getFixedT$")
+    ; 1: lang, 2: ns, 3: keyPrefix
+    arguments: (arguments
+      (
+        [
+          (string (string_fragment))
+          (undefined)
+          (null)
+        ]
+      )?
+      (
+        [
+          (string (string_fragment) @i18n.namespace)
+          (undefined)
+          (null)
+        ]
+      )?
+      (
+        [
+          (string (string_fragment) @i18n.key_prefix)
+          (undefined)
+          (null)
+        ]
+      )?
+    )
+  )
+) @i18n.get_t
 
-; i18n.t() method call
+; t function call
+; Matches: t('key'), i18n.t('key'), i18next.t('key'), etc.
 (call_expression
-  function: (member_expression
-    object: (identifier) @_object (#eq? @_object "i18n")
-    property: (property_identifier) @_method (#eq? @_method "t"))
+  function: [
+    (identifier)
+    (member_expression)
+  ] @i18n.t_func_name
   arguments: (arguments
     (string
-      (string_fragment) @i18n.key)))
-
-; i18next.t() method call
-(call_expression
-  function: (member_expression
-    object: (identifier) @_object (#eq? @_object "i18next")
-    property: (property_identifier) @_method (#eq? @_method "t"))
-  arguments: (arguments
-    (string
-      (string_fragment) @i18n.key)))
-
-; Instance.t() for any variable name
-(call_expression
-  function: (member_expression
-    property: (property_identifier) @_method (#eq? @_method "t"))
-  arguments: (arguments
-    (string
-      (string_fragment) @i18n.key)))
+      (string_fragment) @i18n.key
+    ) @i18n.key_arg
+  )
+) @i18n.call_t
 
 ; Template literal support
 ; Matches: t(`key`)

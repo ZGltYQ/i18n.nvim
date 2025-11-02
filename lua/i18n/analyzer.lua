@@ -12,14 +12,14 @@ end
 
 --- Load Treesitter query from file
 ---@param query_file string Query file path
+---@param lang string Language to parse query for
 ---@return vim.treesitter.Query|nil query
-local function load_query(query_file)
+local function load_query(query_file, lang)
   if not utils.exists(query_file) then
     return nil
   end
 
   local content = table.concat(vim.fn.readfile(query_file), '\n')
-  local lang = 'typescript' -- Both JS and TS use the same query
 
   local ok, query = pcall(vim.treesitter.query.parse, lang, content)
   if not ok then
@@ -31,8 +31,18 @@ local function load_query(query_file)
 end
 
 --- Get all Treesitter queries for i18next
+---@param lang string Language for query parsing
 ---@return vim.treesitter.Query[] queries
-local function get_queries()
+local function get_queries(lang)
+  -- Map language to appropriate parser language for queries
+  -- JSX/TSX files need the tsx parser for JSX node types
+  local query_lang = lang
+  if lang == 'javascriptreact' or lang == 'typescriptreact' then
+    query_lang = 'tsx'
+  elseif lang == 'javascript' or lang == 'typescript' then
+    query_lang = 'typescript'
+  end
+
   local query_dir = get_query_dir()
   local query_files = {
     query_dir .. '/i18next.scm',
@@ -42,7 +52,7 @@ local function get_queries()
   local queries = {}
 
   for _, file in ipairs(query_files) do
-    local query = load_query(file)
+    local query = load_query(file, query_lang)
     if query then
       table.insert(queries, query)
     end
@@ -106,12 +116,14 @@ function M.get_key_at_position(bufnr, row, col)
     return nil
   end
 
+  local lang = parser:lang()
+
   local tree = parser:parse()[1]
   if not tree then
     return nil
   end
 
-  local queries = get_queries()
+  local queries = get_queries(lang)
   if #queries == 0 then
     utils.notify('No Treesitter queries loaded', vim.log.levels.WARN)
     return nil
@@ -174,12 +186,14 @@ function M.get_all_keys(bufnr)
     return {}
   end
 
+  local lang = parser:lang()
+
   local tree = parser:parse()[1]
   if not tree then
     return {}
   end
 
-  local queries = get_queries()
+  local queries = get_queries(lang)
   if #queries == 0 then
     return {}
   end
