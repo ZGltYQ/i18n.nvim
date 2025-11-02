@@ -48,6 +48,75 @@ function M.setup(opts)
     end,
   })
 
+  -- Watch for changes to translation files and external file changes
+  vim.api.nvim_create_autocmd({ 'BufWritePost', 'FileChangedShellPost' }, {
+    group = group,
+    pattern = { '*.json', '*.yml', '*.yaml' },
+    callback = function(args)
+      -- Check if this is a translation file by checking the path
+      local file_path = vim.api.nvim_buf_get_name(args.buf)
+      local conf = config.get()
+
+      -- Check if file matches any translation source pattern
+      local is_translation_file = false
+      for _, pattern in ipairs(conf.translation_source) do
+        -- Simple pattern matching - check if path contains common translation directories
+        if file_path:match('/locales/') or
+           file_path:match('/translations/') or
+           file_path:match('/i18n/') or
+           file_path:match('/lang/') then
+          is_translation_file = true
+          break
+        end
+      end
+
+      if is_translation_file then
+        -- Reload translation source
+        local translation_source = require('i18n.translation_source')
+        translation_source.reload()
+
+        -- Refresh virtual text and diagnostics for all JS/TS buffers
+        vim.schedule(function()
+          for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.api.nvim_buf_is_loaded(bufnr) then
+              local ft = vim.bo[bufnr].filetype
+              if vim.tbl_contains({ 'javascript', 'typescript', 'javascriptreact', 'typescriptreact' }, ft) then
+                if virtual_text.is_enabled(bufnr) then
+                  virtual_text.refresh(bufnr)
+                end
+                if diagnostics.is_enabled(bufnr) then
+                  diagnostics.refresh(bufnr)
+                end
+              end
+            end
+          end
+        end)
+      end
+    end,
+  })
+
+  -- Also refresh diagnostics when focusing window (catch external changes)
+  vim.api.nvim_create_autocmd({ 'FocusGained', 'BufEnter' }, {
+    group = group,
+    pattern = { '*.js', '*.jsx', '*.ts', '*.tsx' },
+    callback = function(args)
+      local bufnr = args.buf
+      local ft = vim.bo[bufnr].filetype
+
+      if vim.tbl_contains({ 'javascript', 'typescript', 'javascriptreact', 'typescriptreact' }, ft) then
+        -- Check if translation files might have changed
+        vim.schedule(function()
+          if diagnostics.is_enabled(bufnr) then
+            diagnostics.refresh(bufnr)
+          end
+          if virtual_text.is_enabled(bufnr) then
+            virtual_text.refresh(bufnr)
+          end
+        end)
+      end
+    end,
+  })
+
   initialized = true
 end
 

@@ -97,7 +97,6 @@ function M.translate_missing_for_key(key, service, bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local conf = config.get()
-  local from_lang = conf.primary_language
 
   -- Get missing languages
   local missing_langs = translation_source.get_missing_languages(key, bufnr)
@@ -107,7 +106,29 @@ function M.translate_missing_for_key(key, service, bufnr)
     return true
   end
 
-  utils.notify('Translating ' .. #missing_langs .. ' missing translations for key: ' .. key)
+  -- Find a source language that has this translation
+  -- Try primary language first, then any other language
+  local from_lang = nil
+  local source_text = translation_source.get_translation(key, conf.primary_language, bufnr)
+
+  if source_text then
+    from_lang = conf.primary_language
+  else
+    -- Primary language doesn't have it, find any language that does
+    local all_translations = translation_source.get_all_translations(key, bufnr)
+    for lang, text in pairs(all_translations) do
+      from_lang = lang
+      source_text = text
+      break
+    end
+  end
+
+  if not from_lang or not source_text then
+    utils.notify('No source translation found for key: ' .. key, vim.log.levels.ERROR)
+    return false
+  end
+
+  utils.notify('Translating ' .. #missing_langs .. ' missing translations for key: ' .. key .. ' (from ' .. from_lang .. ')')
 
   local all_success = true
 
@@ -183,10 +204,53 @@ function M.translate_project(service, bufnr)
 
   utils.notify('Scanning project for missing translations...')
 
-  -- This is a simplified implementation
-  -- In a real scenario, you'd want to scan all files in the project
-  -- For now, we'll just translate the current buffer
-  M.translate_buffer(service, bufnr)
+  -- Get all unique keys from all translation files
+  local all_keys = {}
+  for lang, file in pairs(source.files) do
+    local function collect_keys(tbl, prefix)
+      for key, value in pairs(tbl) do
+        local full_key = prefix == '' and key or (prefix .. '.' .. key)
+        if type(value) == 'table' then
+          collect_keys(value, full_key)
+        else
+          all_keys[full_key] = true
+        end
+      end
+    end
+    collect_keys(file.content, '')
+  end
+
+  local total_keys = vim.tbl_count(all_keys)
+  if total_keys == 0 then
+    utils.notify('No translation keys found in project')
+    return
+  end
+
+  utils.notify('Found ' .. total_keys .. ' translation keys. Translating missing translations...')
+
+  local translated_count = 0
+  for key, _ in pairs(all_keys) do
+    local missing_langs = translation_source.get_missing_languages(key, bufnr)
+
+    if #missing_langs > 0 then
+      M.translate_missing_for_key(key, service, bufnr)
+      translated_count = translated_count + 1
+    end
+  end
+
+  if translated_count == 0 then
+    utils.notify('No missing translations found')
+  else
+    utils.notify('Translated ' .. translated_count .. ' keys')
+
+    -- Refresh virtual text for all open buffers
+    local virtual_text = require('i18n.virtual_text')
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(buf) then
+        virtual_text.refresh(buf)
+      end
+    end
+  end
 end
 
 return M
