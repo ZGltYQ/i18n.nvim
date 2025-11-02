@@ -23,13 +23,13 @@ No more copying text to Google Translate manually! 🎉
 ## Features
 
 - **Inline Translation Display**: See translations directly in your code using virtual text
+- **LSP Diagnostics**: Get warnings (underlines, signs, hover messages) for translation keys missing in some languages
 - **Smart Key Detection**: Treesitter-based parsing for accurate key detection
 - **Quick Add from Selection**: Select text, press a hotkey, and instantly add translations to all languages! 🚀
 - **Translation Editing**: Add or update translations across all language files
 - **Auto-Translation**: Automatically translate missing keys using Google Translate, DeepL, or other services
 - **Multiple File Formats**: Supports both JSON and YAML translation files
 - **i18next Support**: Full support for i18next, react-i18next, and next-i18next
-- **Diagnostics**: Warnings for missing translation keys
 
 ## Requirements
 
@@ -145,6 +145,9 @@ require('i18n').setup({
 - `:I18nVirtualTextEnable` - Enable virtual text display
 - `:I18nVirtualTextDisable` - Disable virtual text display
 - `:I18nVirtualTextToggle` - Toggle virtual text display
+- `:I18nDiagnosticsEnable` - Enable LSP diagnostics for missing translations
+- `:I18nDiagnosticsDisable` - Disable LSP diagnostics for missing translations
+- `:I18nDiagnosticsToggle` - Toggle LSP diagnostics for missing translations
 - `:I18nReload` - Reload translation files from disk
 - `:I18nCopyKey` - Copy the translation key at cursor to clipboard
 - `:I18nInfo` - Show all translations for key at cursor in a popup
@@ -205,12 +208,49 @@ vim.keymap.set('n', '<leader>ti', '<cmd>I18nInfo<cr>', { desc = 'Show translatio
 vim.keymap.set('n', '<leader>tt', '<cmd>I18nTranslate<cr>', { desc = 'Translate missing keys' })
 vim.keymap.set('n', '<leader>tT', '<cmd>I18nTranslateAll<cr>', { desc = 'Translate all missing keys' })
 
--- Virtual text control
+-- Virtual text and diagnostics control
 vim.keymap.set('n', '<leader>tv', '<cmd>I18nVirtualTextToggle<cr>', { desc = 'Toggle virtual text' })
+vim.keymap.set('n', '<leader>td', '<cmd>I18nDiagnosticsToggle<cr>', { desc = 'Toggle diagnostics' })
 
 -- Utilities
 vim.keymap.set('n', '<leader>tc', '<cmd>I18nCopyKey<cr>', { desc = 'Copy translation key' })
 vim.keymap.set('n', '<leader>tr', '<cmd>I18nReload<cr>', { desc = 'Reload translations' })
+```
+
+### LSP Diagnostics
+
+The plugin automatically highlights translation keys that are missing in one or more languages using Neovim's built-in LSP diagnostic system.
+
+**What you'll see:**
+- **Underlines**: Translation keys with missing translations will be underlined (yellow warning by default)
+- **Signs**: Warning signs appear in the gutter (if signs are enabled)
+- **Hover**: Hover over the key to see which languages are missing the translation
+- **Diagnostic List**: View all missing translations with `:lua vim.diagnostic.setloclist()`
+
+**Example:**
+```javascript
+// ✅ No diagnostic - translation exists in all languages
+const greeting = t('app.greeting');
+
+// ⚠️  Diagnostic: "Translation key 'user.welcome' is missing in: fr, es"
+const welcome = t('user.welcome');
+```
+
+**Configure diagnostic severity:**
+```lua
+require('i18n').setup({
+  diagnostic = {
+    enabled = true,
+    severity = vim.diagnostic.severity.WARN,  -- HINT, INFO, WARN, or ERROR
+  },
+})
+```
+
+**Control diagnostics:**
+```vim
+:I18nDiagnosticsToggle  " Toggle diagnostics on/off
+:I18nDiagnosticsDisable " Disable for current buffer
+:I18nDiagnosticsEnable  " Enable for current buffer
 ```
 
 ## Translation Services
