@@ -124,7 +124,21 @@ function M.translate_missing_for_key(key, service, bufnr)
   end
 
   if not from_lang or not source_text then
-    utils.notify('No source translation found for key: ' .. key, vim.log.levels.ERROR)
+    -- Get available languages to show in error message
+    local all_langs = translation_source.get_languages(bufnr)
+    local all_translations = translation_source.get_all_translations(key, bufnr)
+    local has_langs = vim.tbl_keys(all_translations)
+
+    local error_msg = string.format(
+      'No source translation found for key: %s\n' ..
+      'Available languages: [%s]\n' ..
+      'Key exists in: [%s]',
+      key,
+      table.concat(all_langs, ', '),
+      #has_langs > 0 and table.concat(has_langs, ', ') or 'none'
+    )
+
+    utils.notify(error_msg, vim.log.levels.ERROR)
     return false
   end
 
@@ -151,6 +165,9 @@ end
 ---@param bufnr? number Buffer number
 function M.translate_buffer(service, bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Reload translation source to ensure fresh data
+  translation_source.reload()
 
   local analyzer = require('i18n.analyzer')
   local keys = analyzer.get_all_keys(bufnr)
@@ -195,6 +212,9 @@ end
 ---@param bufnr? number Buffer number (for getting project root)
 function M.translate_project(service, bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Reload translation source to ensure fresh data
+  translation_source.reload()
 
   local source = translation_source.get_source(bufnr)
   if not source then
