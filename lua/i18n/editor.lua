@@ -20,8 +20,8 @@ local function update_json_file(file_path, key_parts, value)
     -- Escape value for shell
     local escaped_value = value:gsub('"', '\\"')
 
-    -- Use jq to update the file
-    local cmd = string.format('jq \'%s = "%s"\' %s > %s.tmp && mv %s.tmp %s', jq_path, escaped_value, file_path,
+    -- Use jq to update the file with proper indentation
+    local cmd = string.format('jq --indent 2 \'%s = "%s"\' %s > %s.tmp && mv %s.tmp %s', jq_path, escaped_value, file_path,
       file_path, file_path, file_path)
 
     local result = vim.fn.system(cmd)
@@ -47,9 +47,27 @@ local function update_json_file(file_path, key_parts, value)
   -- Set the value
   utils.tbl_set(content, key_parts, value)
 
-  -- Write back
-  local json = vim.fn.json_encode(content)
-  vim.fn.writefile(vim.split(json, '\n'), file_path)
+  -- Write back with proper formatting
+  local json = vim.json.encode(content)
+
+  -- Format JSON with indentation using jq if available
+  if utils.command_exists('jq') then
+    -- Write temporary unformatted JSON
+    vim.fn.writefile({ json }, file_path .. '.tmp')
+    -- Format with jq
+    local cmd = string.format('jq --indent 2 . %s.tmp > %s && rm %s.tmp', file_path, file_path, file_path)
+    vim.fn.system(cmd)
+
+    if vim.v.shell_error ~= 0 then
+      utils.notify('Failed to format JSON with jq', vim.log.levels.WARN)
+      -- Fallback: write unformatted
+      vim.fn.writefile({ json }, file_path)
+    end
+  else
+    -- No jq available, write unformatted (better than nothing)
+    vim.fn.writefile({ json }, file_path)
+    utils.notify('JSON saved without formatting (install jq for pretty printing)', vim.log.levels.WARN)
+  end
 
   return true
 end
@@ -244,7 +262,7 @@ function M.delete_translation(key, bufnr)
         return '["' .. part .. '"]'
       end, key_parts))
 
-      local cmd = string.format('jq \'del(%s)\' %s > %s.tmp && mv %s.tmp %s', jq_path, file.path, file.path,
+      local cmd = string.format('jq --indent 2 \'del(%s)\' %s > %s.tmp && mv %s.tmp %s', jq_path, file.path, file.path,
         file.path, file.path)
 
       vim.fn.system(cmd)
