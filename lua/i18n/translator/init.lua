@@ -124,26 +124,21 @@ function M.translate_missing_for_key(key, service, bufnr)
   end
 
   if not from_lang or not source_text then
-    -- Get available languages to show in error message
+    -- No source translation found, use the key name as default translation
+    -- and auto-add it to all language files
+    utils.notify('No source translation found for key: ' .. key .. '. Auto-creating with key name as default...')
+
+    -- Use key as the default source text
+    source_text = key
+    from_lang = conf.primary_language
+
+    -- Get all available languages
     local all_langs = translation_source.get_languages(bufnr)
-    local all_translations = translation_source.get_all_translations(key, bufnr)
-    local has_langs = vim.tbl_keys(all_translations)
 
-    local error_msg = string.format(
-      'No source translation found for key: %s\n' ..
-      'Available languages: [%s]\n' ..
-      'Key exists in: [%s]\n\n' ..
-      'To fix this:\n' ..
-      '1. Manually add the key to a translation file, then run :I18nReload\n' ..
-      '2. Or select text and use :I18nAddFromSelection to create it\n' ..
-      '3. Or check if the key name matches (case-sensitive)',
-      key,
-      table.concat(all_langs, ', '),
-      #has_langs > 0 and table.concat(has_langs, ', ') or 'none'
-    )
+    -- Use the auto-translation function from editor module
+    editor._perform_auto_translation(key, source_text, from_lang, all_langs, bufnr)
 
-    utils.notify(error_msg, vim.log.levels.ERROR)
-    return false
+    return true
   end
 
   utils.notify('Translating ' .. #missing_langs .. ' missing translations for key: ' .. key .. ' (from ' .. from_lang .. ')')
