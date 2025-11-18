@@ -29,8 +29,6 @@ local function update_json_file(file_path, key_parts, value)
     if vim.v.shell_error == 0 then
       return true
     end
-
-    utils.notify('jq failed, falling back to Lua JSON update', vim.log.levels.WARN)
   end
 
   -- Fallback to Lua implementation

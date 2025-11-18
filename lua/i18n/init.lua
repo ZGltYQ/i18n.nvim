@@ -20,13 +20,9 @@ function M.setup(opts)
   local commands = require('i18n.commands')
   commands.setup()
 
-  -- Setup virtual text for all buffers
+  -- Load modules (will be enabled automatically for JS/TS buffers via FileType autocmd)
   local virtual_text = require('i18n.virtual_text')
-  virtual_text.setup_all()
-
-  -- Setup diagnostics for all buffers
   local diagnostics = require('i18n.diagnostics')
-  diagnostics.setup_all()
 
   -- Set up autocommands
   local group = vim.api.nvim_create_augroup('i18n', { clear = true })

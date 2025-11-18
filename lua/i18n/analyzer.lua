@@ -77,19 +77,42 @@ local function get_parser(bufnr)
   return parser
 end
 
+--- Unescape JavaScript string escape sequences
+---@param str string String with escape sequences
+---@return string unescaped Unescaped string
+local function unescape_js_string(str)
+  -- Handle common JavaScript escape sequences
+  local result = str
+    :gsub('\\\\', '\x00')  -- Temporarily replace \\ with null byte
+    :gsub('\\"', '"')      -- \" -> "
+    :gsub("\\'", "'")      -- \' -> '
+    :gsub('\\n', '\n')     -- \n -> newline
+    :gsub('\\t', '\t')     -- \t -> tab
+    :gsub('\\r', '\r')     -- \r -> carriage return
+    :gsub('\\b', '\b')     -- \b -> backspace
+    :gsub('\\f', '\f')     -- \f -> form feed
+    :gsub('\x00', '\\')    -- Restore backslash
+
+  return result
+end
+
 --- Extract translation key from capture node
 ---@param node TSNode
 ---@param bufnr number Buffer number
 ---@return string|nil key
 local function extract_key_from_node(node, bufnr)
-  local text = vim.treesitter.get_node_text(node, bufnr)
+  -- Safely get node text with bounds checking
+  local ok, text = pcall(vim.treesitter.get_node_text, node, bufnr)
 
-  if not text then
+  if not ok or not text then
     return nil
   end
 
   -- Remove quotes from string (in case they're included)
   text = text:gsub('^["\']', ''):gsub('["\']$', '')
+
+  -- Unescape JavaScript escape sequences
+  text = unescape_js_string(text)
 
   return text
 end
@@ -143,17 +166,19 @@ function M.get_key_at_position(bufnr, row, col)
       if capture_name == 'i18n.key' then
         -- Check if this node contains the cursor position
         -- Note: Tree-sitter ranges are [start, end) where end is exclusive
-        local match_start_row, match_start_col, match_end_row, match_end_col = match_node:range()
+        local ok, match_start_row, match_start_col, match_end_row, match_end_col = pcall(match_node.range, match_node)
 
-        -- Check if cursor is within the node's range [start, end)
-        local in_row_range = match_start_row <= row and row <= match_end_row
-        local before_start = match_start_row == row and col < match_start_col
-        local after_end = match_end_row == row and col >= match_end_col
+        if ok then
+          -- Check if cursor is within the node's range [start, end)
+          local in_row_range = match_start_row <= row and row <= match_end_row
+          local before_start = match_start_row == row and col < match_start_col
+          local after_end = match_end_row == row and col >= match_end_col
 
-        if in_row_range and not before_start and not after_end then
-          local key = extract_key_from_node(match_node, bufnr)
-          if key then
-            return key
+          if in_row_range and not before_start and not after_end then
+            local key = extract_key_from_node(match_node, bufnr)
+            if key then
+              return key
+            end
           end
         end
       end
@@ -206,15 +231,18 @@ function M.get_all_keys(bufnr)
         local key = extract_key_from_node(node, bufnr)
 
         if key then
-          local start_row, start_col, end_row, end_col = node:range()
+          -- Safely get node range with bounds checking
+          local ok, start_row, start_col, end_row, end_col = pcall(node.range, node)
 
-          table.insert(keys, {
-            key = key,
-            row = start_row,
-            col = start_col,
-            end_row = end_row,
-            end_col = end_col,
-          })
+          if ok then
+            table.insert(keys, {
+              key = key,
+              row = start_row,
+              col = start_col,
+              end_row = end_row,
+              end_col = end_col,
+            })
+          end
         end
       end
     end

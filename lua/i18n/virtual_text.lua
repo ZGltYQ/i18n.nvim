@@ -61,7 +61,12 @@ local function update_buffer(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, namespace, 0, -1)
 
   -- Get all translation keys in buffer
-  local keys = analyzer.get_all_keys(bufnr)
+  local ok, keys = pcall(analyzer.get_all_keys, bufnr)
+
+  if not ok then
+    -- Silently return on error to prevent virtual text from showing stale data
+    return
+  end
 
   -- Create virtual text for each key
   for _, key_location in ipairs(keys) do

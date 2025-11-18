@@ -100,34 +100,25 @@ local function translate_buffer(args)
   end
 end
 
---- Translate all missing keys in project
+--- Translate key at cursor position to all missing languages
 ---@param args table Command arguments
-local function translate_all(args)
+local function translate_key_at_cursor(args)
   local service = args.args
 
   if service == '' then
     service = nil -- Use default service
   end
 
-  translator.translate_project(service)
-end
+  -- Get key at cursor
+  local key = analyzer.get_key_at_position(args.buf)
 
---- Translate a specific key
----@param args table Command arguments
-local function translate_key(args)
-  local parts = vim.split(args.args, ' ', { trimempty = true })
-
-  if #parts < 3 then
-    utils.notify('Usage: I18nTranslateKey <key> <from_lang> <to_lang> [service]', vim.log.levels.ERROR)
+  if not key then
+    utils.notify('No translation key found at cursor', vim.log.levels.WARN)
     return
   end
 
-  local key = parts[1]
-  local from_lang = parts[2]
-  local to_lang = parts[3]
-  local service = parts[4]
-
-  translator.translate_key(key, from_lang, to_lang, service)
+  -- Translate to all missing languages
+  translator.translate_missing_for_key(key, service, args.buf)
 end
 
 --- Enable virtual text
@@ -372,14 +363,9 @@ function M.setup()
     desc = 'Auto-translate missing keys in current buffer',
   })
 
-  vim.api.nvim_create_user_command('I18nTranslateAll', translate_all, {
+  vim.api.nvim_create_user_command('I18nTranslateKey', translate_key_at_cursor, {
     nargs = '?',
-    desc = 'Auto-translate all missing keys in project',
-  })
-
-  vim.api.nvim_create_user_command('I18nTranslateKey', translate_key, {
-    nargs = '+',
-    desc = 'Translate a specific key',
+    desc = 'Auto-translate key at cursor to all missing languages',
   })
 
   vim.api.nvim_create_user_command('I18nVirtualTextEnable', virtual_text_enable, {

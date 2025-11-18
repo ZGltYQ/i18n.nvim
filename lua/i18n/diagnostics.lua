@@ -69,7 +69,13 @@ local function update_buffer(bufnr)
   end
 
   -- Get all translation keys in buffer
-  local keys = analyzer.get_all_keys(bufnr)
+  local ok, keys = pcall(analyzer.get_all_keys, bufnr)
+
+  if not ok then
+    -- Clear diagnostics on error to prevent stale data
+    vim.diagnostic.set(namespace, bufnr, {})
+    return
+  end
 
   -- Create diagnostics for keys with missing translations
   local diagnostics = {}
