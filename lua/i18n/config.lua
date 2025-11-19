@@ -4,6 +4,7 @@ local M = {}
 ---@field primary_language string
 ---@field translation_source string[]
 ---@field key_separator string
+---@field scan_depth number Maximum directory depth for translation file scanning
 ---@field virtual_text I18nVirtualTextConfig
 ---@field diagnostic I18nDiagnosticConfig
 ---@field translator I18nTranslatorConfig
@@ -44,6 +45,10 @@ M.defaults = {
   },
 
   key_separator = '.',
+
+  -- Maximum directory depth for scanning translation files
+  -- Lower values improve performance in large projects
+  scan_depth = 5,
 
   virtual_text = {
     enabled = true,

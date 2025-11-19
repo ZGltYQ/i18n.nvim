@@ -2,6 +2,7 @@ local config = require('i18n.config')
 local utils = require('i18n.utils')
 local analyzer = require('i18n.analyzer')
 local translation_source = require('i18n.translation_source')
+local debounce = require('i18n.debounce')
 
 local M = {}
 
@@ -11,6 +12,10 @@ local namespace = vim.api.nvim_create_namespace('i18n_diagnostics')
 --- Cache for buffer state
 ---@type table<number, boolean>
 local buffer_enabled = {}
+
+--- Cache for debounced update functions per buffer
+---@type table<number, {fn: function, timer: userdata}>
+local buffer_debounced = {}
 
 --- Create diagnostic for a translation key with missing translations
 ---@param bufnr number Buffer number
@@ -101,10 +106,27 @@ function M.enable(bufnr)
 
   buffer_enabled[bufnr] = true
 
+  -- Create debounced update function for this buffer (500ms delay)
+  local debounced_fn, timer = debounce.debounce_trailing(function()
+    update_buffer(bufnr)
+  end, 500)
+
+  buffer_debounced[bufnr] = { fn = debounced_fn, timer = timer }
+
   -- Set up autocommands for this buffer
   local group = vim.api.nvim_create_augroup('i18n_diagnostics_' .. bufnr, { clear = true })
 
-  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufEnter', 'BufWritePost' }, {
+  -- Use debounced function for text changes to prevent excessive re-parsing
+  vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      debounced_fn()
+    end,
+  })
+
+  -- Use immediate update for BufEnter and BufWritePost (no debounce needed)
+  vim.api.nvim_create_autocmd({ 'BufEnter', 'BufWritePost' }, {
     group = group,
     buffer = bufnr,
     callback = function()
@@ -118,6 +140,11 @@ function M.enable(bufnr)
     buffer = bufnr,
     callback = function()
       buffer_enabled[bufnr] = nil
+      -- Clean up debounce timer
+      if buffer_debounced[bufnr] then
+        buffer_debounced[bufnr].timer:close()
+        buffer_debounced[bufnr] = nil
+      end
       vim.diagnostic.set(namespace, bufnr, {})
       vim.api.nvim_del_augroup_by_id(group)
     end,
@@ -139,6 +166,12 @@ function M.disable(bufnr)
   end
 
   buffer_enabled[bufnr] = nil
+
+  -- Clean up debounce timer
+  if buffer_debounced[bufnr] then
+    buffer_debounced[bufnr].timer:close()
+    buffer_debounced[bufnr] = nil
+  end
 
   -- Clear diagnostics
   vim.diagnostic.set(namespace, bufnr, {})

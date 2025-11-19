@@ -163,11 +163,23 @@ function M.truncate(text, max_length, suffix)
   return text:sub(1, max_length - #suffix) .. suffix
 end
 
---- Check if a command is available in PATH
+--- Cache for command existence checks
+---@type table<string, boolean>
+local command_cache = {}
+
+--- Check if a command is available in PATH (cached)
 ---@param cmd string Command name
 ---@return boolean available True if command is available
 function M.command_exists(cmd)
-  return vim.fn.executable(cmd) == 1
+  -- Check cache first
+  if command_cache[cmd] ~= nil then
+    return command_cache[cmd]
+  end
+
+  -- Check and cache result
+  local exists = vim.fn.executable(cmd) == 1
+  command_cache[cmd] = exists
+  return exists
 end
 
 --- Notify user with a message

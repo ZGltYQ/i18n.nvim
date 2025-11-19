@@ -67,21 +67,25 @@ function M.setup(opts)
       end
 
       if is_translation_file then
-        -- Reload translation source
+        -- Reload translation source (now uses incremental mtime checking)
         local translation_source = require('i18n.translation_source')
         translation_source.reload()
 
-        -- Refresh virtual text and diagnostics for all JS/TS buffers
+        -- Refresh virtual text and diagnostics only for visible JS/TS buffers
         vim.schedule(function()
           for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_is_loaded(bufnr) then
               local ft = vim.bo[bufnr].filetype
               if vim.tbl_contains({ 'javascript', 'typescript', 'javascriptreact', 'typescriptreact' }, ft) then
-                if virtual_text.is_enabled(bufnr) then
-                  virtual_text.refresh(bufnr)
-                end
-                if diagnostics.is_enabled(bufnr) then
-                  diagnostics.refresh(bufnr)
+                -- Only refresh if buffer is visible in at least one window
+                local wins = vim.api.nvim_buf_get_windows(bufnr)
+                if #wins > 0 then
+                  if virtual_text.is_enabled(bufnr) then
+                    virtual_text.refresh(bufnr)
+                  end
+                  if diagnostics.is_enabled(bufnr) then
+                    diagnostics.refresh(bufnr)
+                  end
                 end
               end
             end

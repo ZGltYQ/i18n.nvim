@@ -359,7 +359,7 @@ function M.add_from_selection(bufnr)
   end)
 end
 
---- Internal function to perform auto-translation
+--- Internal function to perform auto-translation (parallel version)
 ---@param key string Translation key
 ---@param source_text string Source text to translate from
 ---@param source_lang string Source language code
@@ -372,44 +372,71 @@ function M._perform_auto_translation(key, source_text, source_lang, languages, b
   -- Add source language translation
   translations[source_lang] = source_text
 
-  utils.notify('Translating to ' .. (#languages - 1) .. ' languages...')
-
-  -- Count successful translations
-  local success_count = 0
-  local total_count = 0
-
-  -- Translate to all other languages
+  -- Build list of target languages (exclude source)
+  local target_langs = {}
   for _, lang in ipairs(languages) do
     if lang ~= source_lang then
-      total_count = total_count + 1
-
-      local translated, err = translator.translate_text(source_text, source_lang, lang)
-
-      if translated then
-        translations[lang] = translated
-        success_count = success_count + 1
-      else
-        utils.notify('Failed to translate to ' .. lang .. ': ' .. (err or 'Unknown error'), vim.log.levels.WARN)
-        -- Use source text as fallback
-        translations[lang] = source_text
-      end
+      table.insert(target_langs, lang)
     end
   end
 
-  -- Add all translations to files
-  local add_success = M.add_translation(key, translations, bufnr)
+  if #target_langs == 0 then
+    -- No translations needed, just add source
+    M.add_translation(key, translations, bufnr)
+    utils.notify('Translation added: ' .. key)
+    return
+  end
 
-  if add_success then
-    utils.notify(string.format(
-      'Translation added: %s (%d/%d languages translated successfully)',
-      key,
-      success_count,
-      total_count
-    ))
+  utils.notify(string.format('Translating to %d languages in parallel...', #target_langs))
 
-    -- Refresh virtual text
-    local virtual_text = require('i18n.virtual_text')
-    virtual_text.refresh(bufnr)
+  -- Track completion state
+  local completed = 0
+  local success_count = 0
+  local total_count = #target_langs
+
+  ---@param lang string
+  ---@param result string|nil
+  ---@param err string|nil
+  local function on_translation_complete(lang, result, err)
+    completed = completed + 1
+
+    if result then
+      translations[lang] = result
+      success_count = success_count + 1
+    else
+      utils.notify('Failed to translate to ' .. lang .. ': ' .. (err or 'Unknown error'), vim.log.levels.WARN)
+      -- Use source text as fallback
+      translations[lang] = source_text
+    end
+
+    -- When all translations complete, add them to files
+    if completed == total_count then
+      vim.schedule(function()
+        local add_success = M.add_translation(key, translations, bufnr)
+
+        if add_success then
+          utils.notify(string.format(
+            'Translation added: %s (%d/%d languages translated successfully)',
+            key,
+            success_count,
+            total_count
+          ))
+
+          -- Refresh virtual text
+          local virtual_text = require('i18n.virtual_text')
+          virtual_text.refresh(bufnr)
+        end
+      end)
+    end
+  end
+
+  -- Launch all translations in parallel
+  for _, lang in ipairs(target_langs) do
+    -- Use vim.schedule to ensure async execution
+    vim.schedule(function()
+      local translated, err = translator.translate_text(source_text, source_lang, lang)
+      on_translation_complete(lang, translated, err)
+    end)
   end
 end
 

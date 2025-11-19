@@ -9,6 +9,8 @@ local M = {}
 ---@field path string Absolute path to the translation file
 ---@field language string Language code
 ---@field content table Parsed translation content
+---@field mtime number File modification time (seconds since epoch)
+---@field flat_index table<string, string> Flattened key index for O(1) lookups
 
 ---@class TranslationSource
 ---@field root_dir string Project root directory
@@ -17,6 +19,39 @@ local M = {}
 --- Cache for translation sources per project
 ---@type table<string, TranslationSource>
 local cache = {}
+
+--- Get file modification time
+---@param file_path string
+---@return number|nil mtime Modification time in seconds or nil on error
+local function get_file_mtime(file_path)
+  local stat = vim.loop.fs_stat(file_path)
+  return stat and stat.mtime.sec or nil
+end
+
+--- Build flattened index from nested translation content
+---@param content table Nested translation content
+---@param separator string Key separator
+---@return table<string, string> flat_index Map of flattened keys to values
+local function build_flat_index(content, separator)
+  local flat = {}
+
+  ---@param tbl table
+  ---@param prefix string
+  local function flatten(tbl, prefix)
+    for key, value in pairs(tbl) do
+      local full_key = prefix == '' and key or (prefix .. separator .. key)
+
+      if type(value) == 'table' then
+        flatten(value, full_key)
+      elseif type(value) == 'string' then
+        flat[full_key] = value
+      end
+    end
+  end
+
+  flatten(content, '')
+  return flat
+end
 
 --- Parse JSON file
 ---@param file_path string
@@ -86,13 +121,13 @@ local function find_translation_files(root_dir)
     -- Convert glob pattern to find pattern
     local find_pattern = pattern:gsub('%*%*/', ''):gsub('%.%{[^}]+%}', '.*')
 
-    -- Use scandir to find files
+    -- Use scandir to find files with configurable depth limit
     local found = scandir.scan_dir(root_dir, {
       respect_gitignore = true,
       search_pattern = function(entry)
         return entry:match('%.json$') or entry:match('%.ya?ml$')
       end,
-      depth = 10,
+      depth = conf.scan_depth,
     })
 
     for _, file_path in ipairs(found) do
@@ -114,12 +149,18 @@ local function find_translation_files(root_dir)
 
           if lang then
             local content = parse_file(file_path)
+            local mtime = get_file_mtime(file_path)
 
-            if content then
+            if content and mtime then
+              -- Build flattened index for fast lookups
+              local flat_index = build_flat_index(content, conf.key_separator)
+
               files[lang] = {
                 path = file_path,
                 language = lang,
                 content = content,
+                mtime = mtime,
+                flat_index = flat_index,
               }
             end
           end
@@ -165,7 +206,7 @@ function M.get_source(bufnr)
   return source
 end
 
---- Reload translation source from disk
+--- Reload translation source from disk (incrementally checks mtimes)
 ---@param root_dir? string Project root directory (defaults to current buffer's project)
 function M.reload(root_dir)
   if not root_dir then
@@ -176,20 +217,74 @@ function M.reload(root_dir)
     return
   end
 
-  -- Clear cache
-  cache[root_dir] = nil
+  -- Get existing cache if available
+  local existing = cache[root_dir]
 
-  -- Reload by directly creating the source
-  local files = find_translation_files(root_dir)
+  if not existing then
+    -- No cache exists, do full reload
+    local files = find_translation_files(root_dir)
 
-  if not vim.tbl_isempty(files) then
-    cache[root_dir] = {
-      root_dir = root_dir,
-      files = files,
-    }
-    utils.notify('Translation files reloaded')
+    if not vim.tbl_isempty(files) then
+      cache[root_dir] = {
+        root_dir = root_dir,
+        files = files,
+      }
+      utils.notify('Translation files loaded')
+    else
+      utils.notify('No translation files found', vim.log.levels.WARN)
+    end
+    return
+  end
+
+  -- Incremental reload: check mtimes and only reparse changed files
+  local files_changed = 0
+  local files_removed = 0
+  local files_added = 0
+
+  -- Scan for all current translation files
+  local current_files = find_translation_files(root_dir)
+
+  -- Build map of file paths from existing cache
+  local existing_paths = {}
+  for _, file in pairs(existing.files) do
+    existing_paths[file.path] = file.language
+  end
+
+  -- Check for removed files
+  for lang, file in pairs(existing.files) do
+    if not current_files[lang] then
+      existing.files[lang] = nil
+      files_removed = files_removed + 1
+    end
+  end
+
+  -- Check for new and modified files
+  for lang, new_file in pairs(current_files) do
+    local existing_file = existing.files[lang]
+
+    if not existing_file then
+      -- New file
+      existing.files[lang] = new_file
+      files_added = files_added + 1
+    elseif existing_file.mtime ~= new_file.mtime then
+      -- File modified - update it
+      existing.files[lang] = new_file
+      files_changed = files_changed + 1
+    end
+    -- else: file unchanged, keep cached version
+  end
+
+  -- Notify about changes
+  if files_added > 0 or files_changed > 0 or files_removed > 0 then
+    local msg = string.format(
+      'Translation files updated: +%d ±%d -%d',
+      files_added,
+      files_changed,
+      files_removed
+    )
+    utils.notify(msg)
   else
-    utils.notify('No translation files found', vim.log.levels.WARN)
+    utils.notify('No translation file changes detected')
   end
 end
 
@@ -212,11 +307,8 @@ function M.get_translation(key, lang, bufnr)
     return nil
   end
 
-  -- Split key into parts
-  local key_parts = utils.split_key(key, conf.key_separator)
-
-  -- Try to get the translation
-  local translation = utils.tbl_get(file.content, key_parts)
+  -- Use flat index for O(1) lookup
+  local translation = file.flat_index[key]
 
   if translation then
     return translation
@@ -224,10 +316,9 @@ function M.get_translation(key, lang, bufnr)
 
   -- Try plural suffixes for i18next
   for _, suffix in ipairs(conf.i18next.plural_suffixes) do
-    local plural_key_parts = vim.list_extend({}, key_parts)
-    plural_key_parts[#plural_key_parts] = plural_key_parts[#plural_key_parts] .. suffix
+    local plural_key = key .. suffix
+    translation = file.flat_index[plural_key]
 
-    translation = utils.tbl_get(file.content, plural_key_parts)
     if translation then
       return translation
     end

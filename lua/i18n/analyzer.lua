@@ -111,8 +111,14 @@ local function extract_key_from_node(node, bufnr)
   -- Remove quotes from string (in case they're included)
   text = text:gsub('^["\']', ''):gsub('["\']$', '')
 
-  -- Unescape JavaScript escape sequences
-  text = unescape_js_string(text)
+  -- Note: Tree-sitter's get_node_text on string_fragment nodes returns the
+  -- raw source text, which may contain escape sequences like \n, \t, etc.
+  -- We need to unescape these to get the actual translation key.
+  -- However, we only unescape if the text actually contains backslashes
+  -- to avoid unnecessary processing.
+  if text:find('\\', 1, true) then
+    text = unescape_js_string(text)
+  end
 
   return text
 end
