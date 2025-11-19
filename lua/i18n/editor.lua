@@ -187,9 +187,11 @@ function M.edit_at_cursor(lang, bufnr)
 
     M.set_translation(key, lang, input, bufnr)
 
-    -- Refresh virtual text
+    -- Refresh virtual text and diagnostics
     local virtual_text = require('i18n.virtual_text')
+    local diagnostics = require('i18n.diagnostics')
     virtual_text.refresh(bufnr)
+    diagnostics.refresh(bufnr)
   end)
 end
 
@@ -422,9 +424,11 @@ function M._perform_auto_translation(key, source_text, source_lang, languages, b
             total_count
           ))
 
-          -- Refresh virtual text
+          -- Refresh virtual text and diagnostics
           local virtual_text = require('i18n.virtual_text')
+          local diagnostics = require('i18n.diagnostics')
           virtual_text.refresh(bufnr)
+          diagnostics.refresh(bufnr)
         end
       end)
     end

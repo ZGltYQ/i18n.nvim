@@ -154,6 +154,12 @@ function M.translate_missing_for_key(key, service, bufnr)
 
   if all_success then
     utils.notify('All translations completed for key: ' .. key)
+
+    -- Refresh virtual text and diagnostics
+    local virtual_text = require('i18n.virtual_text')
+    local diagnostics = require('i18n.diagnostics')
+    virtual_text.refresh(bufnr)
+    diagnostics.refresh(bufnr)
   end
 
   return all_success
@@ -200,9 +206,11 @@ function M.translate_buffer(service, bufnr)
   else
     utils.notify('Translated ' .. translated_count .. ' keys')
 
-    -- Refresh virtual text
+    -- Refresh virtual text and diagnostics
     local virtual_text = require('i18n.virtual_text')
+    local diagnostics = require('i18n.diagnostics')
     virtual_text.refresh(bufnr)
+    diagnostics.refresh(bufnr)
   end
 end
 
@@ -262,11 +270,13 @@ function M.translate_project(service, bufnr)
   else
     utils.notify('Translated ' .. translated_count .. ' keys')
 
-    -- Refresh virtual text for all open buffers
+    -- Refresh virtual text and diagnostics for all open buffers
     local virtual_text = require('i18n.virtual_text')
+    local diagnostics = require('i18n.diagnostics')
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_loaded(buf) then
         virtual_text.refresh(buf)
+        diagnostics.refresh(buf)
       end
     end
   end
