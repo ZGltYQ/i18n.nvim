@@ -202,6 +202,75 @@ function DeepLTranslator:batch_translate(texts, from_lang, to_lang)
   return translations, errors
 end
 
+--- Translate text asynchronously with callback
+---@param text string
+---@param from_lang string
+---@param to_lang string
+---@param callback function(translated: string|nil, error: string|nil) Callback function
+function DeepLTranslator:translate_async(text, from_lang, to_lang, callback)
+  if not text or text == '' then
+    vim.schedule(function()
+      callback('', nil)
+    end)
+    return
+  end
+
+  local service_config = self:get_config()
+
+  if not service_config.api_key then
+    vim.schedule(function()
+      callback(nil, 'API key not configured')
+    end)
+    return
+  end
+
+  -- Determine API endpoint
+  local is_free = service_config.api_key:match(':fx$') ~= nil
+  local base_url = is_free and 'https://api-free.deepl.com/v2/translate' or 'https://api.deepl.com/v2/translate'
+
+  -- Map language codes
+  local source_lang = map_language_code(from_lang, false)
+  local target_lang = map_language_code(to_lang, true)
+
+  -- Build request body
+  local body = string.format('text=%s&source_lang=%s&target_lang=%s', vim.uri_encode(text), source_lang, target_lang)
+
+  -- Make async HTTP POST request
+  curl.post(base_url, {
+    headers = {
+      ['Authorization'] = 'DeepL-Auth-Key ' .. service_config.api_key,
+      ['Content-Type'] = 'application/x-www-form-urlencoded',
+    },
+    body = body,
+    callback = function(response)
+      vim.schedule(function()
+        if response.status ~= 200 then
+          local ok, error_data = pcall(vim.fn.json_decode, response.body)
+          if ok and error_data and error_data.message then
+            callback(nil, 'DeepL API error: ' .. error_data.message)
+            return
+          end
+          callback(nil, 'HTTP error: ' .. response.status)
+          return
+        end
+
+        local ok, data = pcall(vim.fn.json_decode, response.body)
+        if not ok or not data then
+          callback(nil, 'Failed to parse response')
+          return
+        end
+
+        if data.translations and data.translations[1] and data.translations[1].text then
+          callback(data.translations[1].text, nil)
+          return
+        end
+
+        callback(nil, 'No translation found in response')
+      end)
+    end,
+  })
+end
+
 --- Create and return a new instance
 ---@return DeepLTranslator
 function M.new()

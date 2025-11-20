@@ -58,6 +58,35 @@ function M.translate_text(text, from_lang, to_lang, service)
   return translator:translate(text, from_lang, to_lang)
 end
 
+--- Translate a single text asynchronously with callback
+---@param text string Text to translate
+---@param from_lang string Source language code
+---@param to_lang string Target language code
+---@param callback function(translated: string|nil, error: string|nil) Callback function
+---@param service? string Translator service name (defaults to config.translator.default)
+function M.translate_text_async(text, from_lang, to_lang, callback, service)
+  local conf = config.get()
+  service = service or conf.translator.default
+
+  local translator = get_translator(service)
+  if not translator then
+    vim.schedule(function()
+      callback(nil, 'Translator not available: ' .. service)
+    end)
+    return
+  end
+
+  if translator.translate_async then
+    translator:translate_async(text, from_lang, to_lang, callback)
+  else
+    -- Fallback to synchronous in scheduled context
+    vim.schedule(function()
+      local translated, err = translator:translate(text, from_lang, to_lang)
+      callback(translated, err)
+    end)
+  end
+end
+
 --- Translate a translation key for a specific language
 ---@param key string Translation key
 ---@param from_lang string Source language code
@@ -88,12 +117,12 @@ function M.translate_key(key, from_lang, to_lang, service, bufnr)
   return editor.set_translation(key, to_lang, translated, bufnr)
 end
 
---- Translate all missing translations for a key
+--- Translate all missing translations for a key (async parallel version)
 ---@param key string Translation key
 ---@param service? string Translator service name
 ---@param bufnr? number Buffer number
----@return boolean success True if all translations were successful
-function M.translate_missing_for_key(key, service, bufnr)
+---@param on_complete? function(success: boolean, success_count: number, total_count: number) Optional completion callback
+function M.translate_missing_for_key(key, service, bufnr, on_complete)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local conf = config.get()
@@ -102,8 +131,10 @@ function M.translate_missing_for_key(key, service, bufnr)
   local missing_langs = translation_source.get_missing_languages(key, bufnr)
 
   if #missing_langs == 0 then
-    utils.notify('No missing translations for key: ' .. key)
-    return true
+    if on_complete then
+      on_complete(true, 0, 0)
+    end
+    return
   end
 
   -- Find a source language that has this translation
@@ -125,9 +156,6 @@ function M.translate_missing_for_key(key, service, bufnr)
 
   if not from_lang or not source_text then
     -- No source translation found, use the key name as default translation
-    -- and auto-add it to all language files
-    utils.notify('No source translation found for key: ' .. key .. '. Auto-creating with key name as default...')
-
     -- Use key as the default source text
     source_text = key
     from_lang = conf.primary_language
@@ -138,34 +166,67 @@ function M.translate_missing_for_key(key, service, bufnr)
     -- Use the auto-translation function from editor module
     editor._perform_auto_translation(key, source_text, from_lang, all_langs, bufnr)
 
-    return true
+    if on_complete then
+      on_complete(true, #all_langs, #all_langs)
+    end
+    return
   end
 
-  utils.notify('Translating ' .. #missing_langs .. ' missing translations for key: ' .. key .. ' (from ' .. from_lang .. ')')
+  -- Track completion state for parallel translations
+  local completed = 0
+  local success_count = 0
+  local total_count = #missing_langs
+  local translations = {}
 
-  local all_success = true
+  ---@param lang string
+  ---@param translated string|nil
+  ---@param err string|nil
+  local function on_translation_complete(lang, translated, err)
+    completed = completed + 1
 
-  for _, to_lang in ipairs(missing_langs) do
-    local success = M.translate_key(key, from_lang, to_lang, service, bufnr)
-    if not success then
-      all_success = false
+    if translated then
+      translations[lang] = translated
+      success_count = success_count + 1
+    else
+      utils.notify('Failed to translate ' .. key .. ' to ' .. lang .. ': ' .. (err or 'Unknown error'), vim.log.levels.WARN)
+    end
+
+    -- When all translations complete, update files in batch
+    if completed == total_count then
+      vim.schedule(function()
+        -- Prepare batch updates: lang -> { key -> translation }
+        local updates = {}
+        for lang, translation in pairs(translations) do
+          updates[lang] = { [key] = translation }
+        end
+
+        -- Batch update all translations
+        if vim.tbl_count(updates) > 0 then
+          editor.batch_update_translations(updates, bufnr)
+
+          -- Refresh virtual text and diagnostics
+          local virtual_text = require('i18n.virtual_text')
+          local diagnostics = require('i18n.diagnostics')
+          virtual_text.refresh(bufnr)
+          diagnostics.refresh(bufnr)
+        end
+
+        if on_complete then
+          on_complete(success_count == total_count, success_count, total_count)
+        end
+      end)
     end
   end
 
-  if all_success then
-    utils.notify('All translations completed for key: ' .. key)
-
-    -- Refresh virtual text and diagnostics
-    local virtual_text = require('i18n.virtual_text')
-    local diagnostics = require('i18n.diagnostics')
-    virtual_text.refresh(bufnr)
-    diagnostics.refresh(bufnr)
+  -- Launch all translations in parallel
+  for _, to_lang in ipairs(missing_langs) do
+    M.translate_text_async(source_text, from_lang, to_lang, function(translated, err)
+      on_translation_complete(to_lang, translated, err)
+    end, service)
   end
-
-  return all_success
 end
 
---- Translate all missing translations in buffer
+--- Translate all missing translations in buffer (async parallel version)
 ---@param service? string Translator service name
 ---@param bufnr? number Buffer number
 function M.translate_buffer(service, bufnr)
@@ -182,39 +243,72 @@ function M.translate_buffer(service, bufnr)
     return
   end
 
-  utils.notify('Found ' .. #keys .. ' translation keys. Translating missing translations...')
-
   -- Get unique keys
   local unique_keys = {}
   for _, key_location in ipairs(keys) do
     unique_keys[key_location.key] = true
   end
 
-  local translated_count = 0
-
+  -- Filter keys that have missing translations
+  local keys_to_translate = {}
   for key, _ in pairs(unique_keys) do
     local missing_langs = translation_source.get_missing_languages(key, bufnr)
-
     if #missing_langs > 0 then
-      M.translate_missing_for_key(key, service, bufnr)
-      translated_count = translated_count + 1
+      table.insert(keys_to_translate, key)
     end
   end
 
-  if translated_count == 0 then
+  if #keys_to_translate == 0 then
     utils.notify('No missing translations found')
-  else
-    utils.notify('Translated ' .. translated_count .. ' keys')
+    return
+  end
 
-    -- Refresh virtual text and diagnostics
-    local virtual_text = require('i18n.virtual_text')
-    local diagnostics = require('i18n.diagnostics')
-    virtual_text.refresh(bufnr)
-    diagnostics.refresh(bufnr)
+  -- Show single start message
+  utils.notify('Translating ' .. #keys_to_translate .. ' keys in parallel...')
+
+  -- Track completion of all keys
+  local completed_keys = 0
+  local total_keys = #keys_to_translate
+  local total_translations = 0
+  local successful_translations = 0
+
+  local function on_key_complete(success, success_count, total_count)
+    completed_keys = completed_keys + 1
+    total_translations = total_translations + total_count
+    successful_translations = successful_translations + success_count
+
+    -- When all keys complete, show final message
+    if completed_keys == total_keys then
+      vim.schedule(function()
+        if successful_translations == total_translations then
+          utils.notify('Successfully translated ' .. total_keys .. ' keys (' .. successful_translations .. ' translations)')
+        else
+          utils.notify(
+            string.format('Translated %d keys (%d/%d translations successful)',
+              total_keys,
+              successful_translations,
+              total_translations
+            ),
+            vim.log.levels.WARN
+          )
+        end
+
+        -- Final refresh
+        local virtual_text = require('i18n.virtual_text')
+        local diagnostics = require('i18n.diagnostics')
+        virtual_text.refresh(bufnr)
+        diagnostics.refresh(bufnr)
+      end)
+    end
+  end
+
+  -- Launch all key translations in parallel
+  for _, key in ipairs(keys_to_translate) do
+    M.translate_missing_for_key(key, service, bufnr, on_key_complete)
   end
 end
 
---- Translate all missing translations in project
+--- Translate all missing translations in project (async parallel version)
 ---@param service? string Translator service name
 ---@param bufnr? number Buffer number (for getting project root)
 function M.translate_project(service, bufnr)
@@ -228,8 +322,6 @@ function M.translate_project(service, bufnr)
     utils.notify('No translation source found', vim.log.levels.ERROR)
     return
   end
-
-  utils.notify('Scanning project for missing translations...')
 
   -- Get all unique keys from all translation files
   local all_keys = {}
@@ -253,32 +345,66 @@ function M.translate_project(service, bufnr)
     return
   end
 
-  utils.notify('Found ' .. total_keys .. ' translation keys. Translating missing translations...')
-
-  local translated_count = 0
+  -- Filter keys that have missing translations
+  local keys_to_translate = {}
   for key, _ in pairs(all_keys) do
     local missing_langs = translation_source.get_missing_languages(key, bufnr)
-
     if #missing_langs > 0 then
-      M.translate_missing_for_key(key, service, bufnr)
-      translated_count = translated_count + 1
+      table.insert(keys_to_translate, key)
     end
   end
 
-  if translated_count == 0 then
+  if #keys_to_translate == 0 then
     utils.notify('No missing translations found')
-  else
-    utils.notify('Translated ' .. translated_count .. ' keys')
+    return
+  end
 
-    -- Refresh virtual text and diagnostics for all open buffers
-    local virtual_text = require('i18n.virtual_text')
-    local diagnostics = require('i18n.diagnostics')
-    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_is_loaded(buf) then
-        virtual_text.refresh(buf)
-        diagnostics.refresh(buf)
-      end
+  -- Show single start message
+  utils.notify('Translating ' .. #keys_to_translate .. ' keys in parallel...')
+
+  -- Track completion of all keys
+  local completed_keys = 0
+  local total_keys_count = #keys_to_translate
+  local total_translations = 0
+  local successful_translations = 0
+
+  local function on_key_complete(success, success_count, total_count)
+    completed_keys = completed_keys + 1
+    total_translations = total_translations + total_count
+    successful_translations = successful_translations + success_count
+
+    -- When all keys complete, show final message
+    if completed_keys == total_keys_count then
+      vim.schedule(function()
+        if successful_translations == total_translations then
+          utils.notify('Successfully translated ' .. total_keys_count .. ' keys (' .. successful_translations .. ' translations)')
+        else
+          utils.notify(
+            string.format('Translated %d keys (%d/%d translations successful)',
+              total_keys_count,
+              successful_translations,
+              total_translations
+            ),
+            vim.log.levels.WARN
+          )
+        end
+
+        -- Refresh virtual text and diagnostics for all open buffers
+        local virtual_text = require('i18n.virtual_text')
+        local diagnostics = require('i18n.diagnostics')
+        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+          if vim.api.nvim_buf_is_loaded(buf) then
+            virtual_text.refresh(buf)
+            diagnostics.refresh(buf)
+          end
+        end
+      end)
     end
+  end
+
+  -- Launch all key translations in parallel
+  for _, key in ipairs(keys_to_translate) do
+    M.translate_missing_for_key(key, service, bufnr, on_key_complete)
   end
 end
 

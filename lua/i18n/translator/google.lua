@@ -166,6 +166,108 @@ function GoogleTranslator:translate(text, from_lang, to_lang)
   end
 end
 
+--- Translate text asynchronously with callback
+---@param text string
+---@param from_lang string
+---@param to_lang string
+---@param callback function(translated: string|nil, error: string|nil) Callback function
+function GoogleTranslator:translate_async(text, from_lang, to_lang, callback)
+  if not text or text == '' then
+    vim.schedule(function()
+      callback('', nil)
+    end)
+    return
+  end
+
+  local service_config = self:get_config()
+
+  if service_config.type == 'api' then
+    -- Async API translation
+    local url = 'https://translation.googleapis.com/language/translate/v2?key=' .. service_config.api_key
+    local body = vim.fn.json_encode({
+      q = text,
+      source = from_lang,
+      target = to_lang,
+      format = 'text',
+    })
+
+    curl.post(url, {
+      headers = {
+        ['Content-Type'] = 'application/json',
+      },
+      body = body,
+      callback = function(response)
+        vim.schedule(function()
+          if response.status ~= 200 then
+            callback(nil, 'HTTP error: ' .. response.status)
+            return
+          end
+
+          local ok, data = pcall(vim.fn.json_decode, response.body)
+          if not ok or not data then
+            callback(nil, 'Failed to parse response')
+            return
+          end
+
+          if data.data and data.data.translations and data.data.translations[1] then
+            callback(data.data.translations[1].translatedText, nil)
+            return
+          end
+
+          if data.error then
+            callback(nil, data.error.message or 'API error')
+            return
+          end
+
+          callback(nil, 'No translation found in response')
+        end)
+      end,
+    })
+  else
+    -- Async free translation
+    local encoded_text = vim.uri_encode(text)
+    local url = string.format(
+      'https://translate.googleapis.com/translate_a/single?client=gtx&sl=%s&tl=%s&dt=t&q=%s',
+      from_lang,
+      to_lang,
+      encoded_text
+    )
+
+    curl.get(url, {
+      headers = {
+        ['User-Agent'] = 'Mozilla/5.0',
+      },
+      callback = function(response)
+        vim.schedule(function()
+          if response.status ~= 200 then
+            callback(nil, 'HTTP error: ' .. response.status)
+            return
+          end
+
+          local ok, data = pcall(vim.fn.json_decode, response.body)
+          if not ok or not data or type(data) ~= 'table' then
+            callback(nil, 'Failed to parse response')
+            return
+          end
+
+          if data[1] and data[1][1] and data[1][1][1] then
+            local translated = ''
+            for _, segment in ipairs(data[1]) do
+              if segment[1] then
+                translated = translated .. segment[1]
+              end
+            end
+            callback(translated, nil)
+            return
+          end
+
+          callback(nil, 'No translation found in response')
+        end)
+      end,
+    })
+  end
+end
+
 --- Create and return a new instance
 ---@return GoogleTranslator
 function M.new()

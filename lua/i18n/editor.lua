@@ -148,7 +148,6 @@ function M.set_translation(key, lang, value, bufnr)
   if success then
     -- Reload translation source
     translation_source.reload(source.root_dir)
-    utils.notify('Translation updated: ' .. key .. ' (' .. lang .. ')')
     return true
   end
 
@@ -193,6 +192,92 @@ function M.edit_at_cursor(lang, bufnr)
     virtual_text.refresh(bufnr)
     diagnostics.refresh(bufnr)
   end)
+end
+
+--- Update multiple translations in batch (one file write per language)
+---@param updates table<string, table<string, string>> Map of language to map of key to translation
+---@param bufnr? number Buffer number
+---@return boolean success True if all updates were successful
+function M.batch_update_translations(updates, bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  local source = translation_source.get_source(bufnr)
+  if not source then
+    utils.notify('No translation source found', vim.log.levels.ERROR)
+    return false
+  end
+
+  local conf = config.get()
+  local all_success = true
+
+  -- Update each language file once with all translations
+  for lang, key_values in pairs(updates) do
+    local file = source.files[lang]
+
+    if file then
+      local ext = vim.fn.fnamemodify(file.path, ':e')
+
+      -- For JSON files, batch all updates
+      if ext == 'json' then
+        -- Read the current file
+        local ok, content = pcall(function()
+          local lines = vim.fn.readfile(file.path)
+          return vim.fn.json_decode(table.concat(lines, '\n'))
+        end)
+
+        if not ok then
+          utils.notify('Failed to parse JSON file: ' .. file.path, vim.log.levels.ERROR)
+          all_success = false
+        else
+          -- Apply all updates to the content
+          for key, value in pairs(key_values) do
+            local key_parts = utils.split_key(key, conf.key_separator)
+            utils.tbl_set(content, key_parts, value)
+          end
+
+          -- Write back with proper formatting
+          local json = vim.json.encode(content)
+
+          if utils.command_exists('jq') then
+            -- Write temporary unformatted JSON
+            vim.fn.writefile({ json }, file.path .. '.tmp')
+            -- Format with jq
+            local cmd = string.format('jq --indent 2 . %s.tmp > %s && rm %s.tmp', file.path, file.path, file.path)
+            vim.fn.system(cmd)
+
+            if vim.v.shell_error ~= 0 then
+              utils.notify('Failed to format JSON with jq', vim.log.levels.WARN)
+              -- Fallback: write unformatted
+              vim.fn.writefile({ json }, file.path)
+            end
+          else
+            -- No jq available, write unformatted
+            vim.fn.writefile({ json }, file.path)
+          end
+        end
+      elseif ext == 'yml' or ext == 'yaml' then
+        -- For YAML files, still need to use yq per key (limitation of current approach)
+        -- TODO: Could be improved with a Lua YAML library
+        for key, value in pairs(key_values) do
+          local key_parts = utils.split_key(key, conf.key_separator)
+          local success = update_yaml_file(file.path, key_parts, value)
+          if not success then
+            all_success = false
+          end
+        end
+      end
+    else
+      utils.notify('No translation file for language: ' .. lang, vim.log.levels.WARN)
+      all_success = false
+    end
+  end
+
+  if all_success then
+    -- Reload translation source once at the end
+    translation_source.reload(source.root_dir)
+  end
+
+  return all_success
 end
 
 --- Add translation to all language files
