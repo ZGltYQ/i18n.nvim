@@ -208,7 +208,9 @@ end
 
 --- Reload translation source from disk (incrementally checks mtimes)
 ---@param root_dir? string Project root directory (defaults to current buffer's project)
-function M.reload(root_dir)
+function M.reload(root_dir, silent)
+  silent = silent or false
+
   if not root_dir then
     root_dir = utils.get_project_root()
   end
@@ -229,9 +231,13 @@ function M.reload(root_dir)
         root_dir = root_dir,
         files = files,
       }
-      utils.notify('Translation files loaded')
+      if not silent then
+        utils.notify('Translation files loaded')
+      end
     else
-      utils.notify('No translation files found', vim.log.levels.WARN)
+      if not silent then
+        utils.notify('No translation files found', vim.log.levels.WARN)
+      end
     end
     return
   end
@@ -275,16 +281,18 @@ function M.reload(root_dir)
   end
 
   -- Notify about changes
-  if files_added > 0 or files_changed > 0 or files_removed > 0 then
-    local msg = string.format(
-      'Translation files updated: +%d ±%d -%d',
-      files_added,
-      files_changed,
-      files_removed
-    )
-    utils.notify(msg)
-  else
-    utils.notify('No translation file changes detected')
+  if not silent then
+    if files_added > 0 or files_changed > 0 or files_removed > 0 then
+      local msg = string.format(
+        'Translation files updated: +%d ±%d -%d',
+        files_added,
+        files_changed,
+        files_removed
+      )
+      utils.notify(msg)
+    else
+      utils.notify('No translation file changes detected')
+    end
   end
 end
 

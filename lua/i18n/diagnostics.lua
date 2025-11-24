@@ -57,6 +57,11 @@ end
 --- Update diagnostics for buffer
 ---@param bufnr number Buffer number
 local function update_buffer(bufnr)
+  -- Check if buffer is still valid
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
   if not buffer_enabled[bufnr] then
     return
   end
@@ -99,6 +104,11 @@ end
 ---@param bufnr? number Buffer number (defaults to current buffer)
 function M.enable(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Check if buffer is valid
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
 
   if buffer_enabled[bufnr] then
     return

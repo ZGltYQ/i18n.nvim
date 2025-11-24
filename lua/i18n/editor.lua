@@ -4,70 +4,102 @@ local translation_source = require('i18n.translation_source')
 
 local M = {}
 
---- Update JSON file using jq (if available) or fallback to Lua
+--- Update JSON file with flat keys while preserving order
 ---@param file_path string File path
----@param key_parts string[] Translation key parts
+---@param updates table<string, string> Map of keys to values
+---@return boolean success True if update was successful
+local function update_json_flat_preserving_order(file_path, updates)
+  -- Read existing file
+  local ok, lines = pcall(vim.fn.readfile, file_path)
+
+  if not ok or #lines == 0 then
+    -- Create new file with updates
+    local content = {'{'}
+    local keys = vim.tbl_keys(updates)
+    for i, key in ipairs(keys) do
+      local comma = (i < #keys) and ',' or ''
+      table.insert(content, '  "' .. key:gsub('"', '\\"') .. '": "' .. updates[key]:gsub('"', '\\"') .. '"' .. comma)
+    end
+    table.insert(content, '}')
+    vim.fn.writefile(content, file_path)
+    return true
+  end
+
+  -- Track which keys we've processed
+  local processed = {}
+
+  -- Update existing keys in-place
+  for i, line in ipairs(lines) do
+    -- Match JSON key in this line (handles escaped quotes in keys)
+    local key_match = line:match('^%s*"(.-[^\\])"%s*:')
+    if not key_match then
+      -- Try to match key without escapes
+      key_match = line:match('^%s*"(.-)"%s*:')
+    end
+
+    if key_match then
+      -- Unescape the key to match against updates
+      local key = key_match:gsub('\\"', '"')
+
+      if updates[key] then
+        -- Update this key's value while preserving indentation and comma
+        local indent = line:match('^(%s*)')
+        local has_comma = line:match(',$') ~= nil
+        local comma = has_comma and ',' or ''
+        lines[i] = indent .. '"' .. key:gsub('"', '\\"') .. '": "' .. updates[key]:gsub('"', '\\"') .. '"' .. comma
+        processed[key] = true
+      end
+    end
+  end
+
+  -- Collect new keys that weren't in the original file
+  local new_keys = {}
+  for key, value in pairs(updates) do
+    if not processed[key] then
+      table.insert(new_keys, {key = key, value = value})
+    end
+  end
+
+  -- Add new keys at the end (before closing brace)
+  if #new_keys > 0 then
+    -- Find the closing brace line
+    for i = #lines, 1, -1 do
+      if lines[i]:match('^%s*}%s*$') then
+        -- Find the last non-empty, non-brace line before closing brace
+        local last_entry_line = i - 1
+        while last_entry_line > 0 and (lines[last_entry_line]:match('^%s*$') or lines[last_entry_line]:match('^%s*}')) do
+          last_entry_line = last_entry_line - 1
+        end
+
+        -- Add comma to last entry if it doesn't have one and isn't the opening brace
+        if last_entry_line > 0 and not lines[last_entry_line]:match(',$') and not lines[last_entry_line]:match('^%s*{') then
+          lines[last_entry_line] = lines[last_entry_line] .. ','
+        end
+
+        -- Insert new keys before the closing brace
+        for j, entry in ipairs(new_keys) do
+          local comma = (j < #new_keys) and ',' or ''
+          table.insert(lines, i, '  "' .. entry.key:gsub('"', '\\"') .. '": "' .. entry.value:gsub('"', '\\"') .. '"' .. comma)
+          i = i + 1
+        end
+        break
+      end
+    end
+  end
+
+  -- Write back to file
+  vim.fn.writefile(lines, file_path)
+  return true
+end
+
+--- Update JSON file with flat keys (no nesting)
+---@param file_path string File path
+---@param key string Translation key (treated as single flat key, not split)
 ---@param value string Translation value
 ---@return boolean success True if update was successful
-local function update_json_file(file_path, key_parts, value)
-  -- Try using jq for reliable JSON manipulation
-  if utils.command_exists('jq') then
-    -- Build jq path expression
-    local jq_path = table.concat(vim.tbl_map(function(part)
-      return '["' .. part .. '"]'
-    end, key_parts))
-
-    -- Escape value for shell
-    local escaped_value = value:gsub('"', '\\"')
-
-    -- Use jq to update the file with proper indentation
-    local cmd = string.format('jq --indent 2 \'%s = "%s"\' %s > %s.tmp && mv %s.tmp %s', jq_path, escaped_value, file_path,
-      file_path, file_path, file_path)
-
-    local result = vim.fn.system(cmd)
-
-    if vim.v.shell_error == 0 then
-      return true
-    end
-  end
-
-  -- Fallback to Lua implementation
-  local ok, content = pcall(function()
-    local lines = vim.fn.readfile(file_path)
-    return vim.fn.json_decode(table.concat(lines, '\n'))
-  end)
-
-  if not ok then
-    utils.notify('Failed to parse JSON file: ' .. file_path, vim.log.levels.ERROR)
-    return false
-  end
-
-  -- Set the value
-  utils.tbl_set(content, key_parts, value)
-
-  -- Write back with proper formatting
-  local json = vim.json.encode(content)
-
-  -- Format JSON with indentation using jq if available
-  if utils.command_exists('jq') then
-    -- Write temporary unformatted JSON
-    vim.fn.writefile({ json }, file_path .. '.tmp')
-    -- Format with jq
-    local cmd = string.format('jq --indent 2 . %s.tmp > %s && rm %s.tmp', file_path, file_path, file_path)
-    vim.fn.system(cmd)
-
-    if vim.v.shell_error ~= 0 then
-      utils.notify('Failed to format JSON with jq', vim.log.levels.WARN)
-      -- Fallback: write unformatted
-      vim.fn.writefile({ json }, file_path)
-    end
-  else
-    -- No jq available, write unformatted (better than nothing)
-    vim.fn.writefile({ json }, file_path)
-    utils.notify('JSON saved without formatting (install jq for pretty printing)', vim.log.levels.WARN)
-  end
-
-  return true
+local function update_json_file(file_path, key, value)
+  -- Use the new flat key preserving order function
+  return update_json_flat_preserving_order(file_path, {[key] = value})
 end
 
 --- Update YAML file using yq (if available)
@@ -102,15 +134,19 @@ end
 
 --- Update translation file
 ---@param file_path string File path
----@param key_parts string[] Translation key parts
+---@param key string Translation key (for JSON: flat key; for YAML: may be split)
 ---@param value string Translation value
 ---@return boolean success True if update was successful
-local function update_file(file_path, key_parts, value)
+local function update_file(file_path, key, value)
   local ext = vim.fn.fnamemodify(file_path, ':e')
 
   if ext == 'json' then
-    return update_json_file(file_path, key_parts, value)
+    -- JSON: use flat key (no splitting)
+    return update_json_file(file_path, key, value)
   elseif ext == 'yml' or ext == 'yaml' then
+    -- YAML: split key for nested structure
+    local conf = config.get()
+    local key_parts = utils.split_key(key, conf.key_separator)
     return update_yaml_file(file_path, key_parts, value)
   end
 
@@ -139,11 +175,8 @@ function M.set_translation(key, lang, value, bufnr)
     return false
   end
 
-  local conf = config.get()
-  local key_parts = utils.split_key(key, conf.key_separator)
-
-  -- Update the file
-  local success = update_file(file.path, key_parts, value)
+  -- Update the file with flat key (no splitting)
+  local success = update_file(file.path, key, value)
 
   if success then
     -- Reload translation source
@@ -217,43 +250,12 @@ function M.batch_update_translations(updates, bufnr)
     if file then
       local ext = vim.fn.fnamemodify(file.path, ':e')
 
-      -- For JSON files, batch all updates
+      -- For JSON files, batch all updates with flat keys preserving order
       if ext == 'json' then
-        -- Read the current file
-        local ok, content = pcall(function()
-          local lines = vim.fn.readfile(file.path)
-          return vim.fn.json_decode(table.concat(lines, '\n'))
-        end)
-
-        if not ok then
-          utils.notify('Failed to parse JSON file: ' .. file.path, vim.log.levels.ERROR)
+        local success = update_json_flat_preserving_order(file.path, key_values)
+        if not success then
+          utils.notify('Failed to update JSON file: ' .. file.path, vim.log.levels.ERROR)
           all_success = false
-        else
-          -- Apply all updates to the content
-          for key, value in pairs(key_values) do
-            local key_parts = utils.split_key(key, conf.key_separator)
-            utils.tbl_set(content, key_parts, value)
-          end
-
-          -- Write back with proper formatting
-          local json = vim.json.encode(content)
-
-          if utils.command_exists('jq') then
-            -- Write temporary unformatted JSON
-            vim.fn.writefile({ json }, file.path .. '.tmp')
-            -- Format with jq
-            local cmd = string.format('jq --indent 2 . %s.tmp > %s && rm %s.tmp', file.path, file.path, file.path)
-            vim.fn.system(cmd)
-
-            if vim.v.shell_error ~= 0 then
-              utils.notify('Failed to format JSON with jq', vim.log.levels.WARN)
-              -- Fallback: write unformatted
-              vim.fn.writefile({ json }, file.path)
-            end
-          else
-            -- No jq available, write unformatted
-            vim.fn.writefile({ json }, file.path)
-          end
         end
       elseif ext == 'yml' or ext == 'yaml' then
         -- For YAML files, still need to use yq per key (limitation of current approach)
@@ -273,8 +275,8 @@ function M.batch_update_translations(updates, bufnr)
   end
 
   if all_success then
-    -- Reload translation source once at the end
-    translation_source.reload(source.root_dir)
+    -- Reload translation source once at the end (silently to avoid duplicate notifications)
+    translation_source.reload(source.root_dir, true)
   end
 
   return all_success
@@ -294,16 +296,14 @@ function M.add_translation(key, translations, bufnr)
     return false
   end
 
-  local conf = config.get()
-  local key_parts = utils.split_key(key, conf.key_separator)
   local all_success = true
 
-  -- Update each language file
+  -- Update each language file with flat key (no splitting)
   for lang, value in pairs(translations) do
     local file = source.files[lang]
 
     if file then
-      local success = update_file(file.path, key_parts, value)
+      local success = update_file(file.path, key, value)
       if not success then
         all_success = false
       end
