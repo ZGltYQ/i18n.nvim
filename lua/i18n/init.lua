@@ -56,13 +56,16 @@ function M.setup(opts)
       -- Check if file matches any translation source pattern
       local is_translation_file = false
       for _, pattern in ipairs(conf.translation_source) do
-        -- Simple pattern matching - check if path contains common translation directories
-        if file_path:match('/locales/') or
-           file_path:match('/translations/') or
-           file_path:match('/i18n/') or
-           file_path:match('/lang/') then
-          is_translation_file = true
-          break
+        -- Extract directory name from pattern (e.g., 'locales' from '**/locales/**/*.{json,yml,yaml}')
+        -- Pattern format: **/dirname/**/*...
+        local dir_name = pattern:match('%*%*/(.-)/') or pattern:match('^(.-)/') or pattern:match('^(.-)%*')
+        if dir_name and dir_name ~= '' and dir_name ~= '*' then
+          -- Check if file path contains this directory
+          local escaped_dir = dir_name:gsub('[%(%)%.%%%+%-%*%?%[%]%^%$]', '%%%1')
+          if file_path:match('/' .. escaped_dir .. '/') then
+            is_translation_file = true
+            break
+          end
         end
       end
 
@@ -78,7 +81,7 @@ function M.setup(opts)
               local ft = vim.bo[bufnr].filetype
               if vim.tbl_contains({ 'javascript', 'typescript', 'javascriptreact', 'typescriptreact' }, ft) then
                 -- Only refresh if buffer is visible in at least one window
-                local wins = vim.api.nvim_buf_get_windows(bufnr)
+                local wins = vim.fn.win_findbuf(bufnr)
                 if #wins > 0 then
                   if virtual_text.is_enabled(bufnr) then
                     virtual_text.refresh(bufnr)

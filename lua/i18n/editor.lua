@@ -116,13 +116,13 @@ local function update_yaml_file(file_path, key_parts, value)
   -- Build yq path expression
   local yq_path = '.' .. table.concat(key_parts, '.')
 
-  -- Escape value for shell
-  local escaped_value = value:gsub('"', '\\"')
+  -- Use JSON encoding for the value to safely escape all special characters
+  -- This avoids shell injection by not using string interpolation in shell commands
+  local escaped_value = vim.fn.json_encode(value)
+  local yq_expr = yq_path .. ' = ' .. escaped_value
 
-  -- Use yq to update the file
-  local cmd = string.format('yq eval \'%s = "%s"\' -i %s', yq_path, escaped_value, file_path)
-
-  local result = vim.fn.system(cmd)
+  -- Use vim.fn.system with list args to avoid shell injection
+  local result = vim.fn.system({ 'yq', 'eval', yq_expr, '-i', file_path })
 
   if vim.v.shell_error ~= 0 then
     utils.notify('Failed to update YAML file: ' .. file_path, vim.log.levels.ERROR)
@@ -338,23 +338,28 @@ function M.delete_translation(key, bufnr)
   local conf = config.get()
   local key_parts = utils.split_key(key, conf.key_separator)
 
-  -- For simplicity, we'll use jq/yq to delete keys
+  -- Use jq/yq to delete keys with safe argument passing
   for lang, file in pairs(source.files) do
     local ext = vim.fn.fnamemodify(file.path, ':e')
 
     if ext == 'json' and utils.command_exists('jq') then
+      -- Build jq path expression safely using JSON encoding for each part
       local jq_path = table.concat(vim.tbl_map(function(part)
-        return '["' .. part .. '"]'
+        return '[' .. vim.fn.json_encode(part) .. ']'
       end, key_parts))
 
-      local cmd = string.format('jq --indent 2 \'del(%s)\' %s > %s.tmp && mv %s.tmp %s', jq_path, file.path, file.path,
-        file.path, file.path)
+      local jq_expr = 'del(' .. jq_path .. ')'
 
-      vim.fn.system(cmd)
+      -- Run jq with list args, capture output, then write back
+      local result = vim.fn.system({ 'jq', '--indent', '2', jq_expr, file.path })
+      if vim.v.shell_error == 0 then
+        vim.fn.writefile(vim.split(result, '\n', { trimempty = true }), file.path)
+      end
     elseif (ext == 'yml' or ext == 'yaml') and utils.command_exists('yq') then
       local yq_path = '.' .. table.concat(key_parts, '.')
-      local cmd = string.format('yq eval \'del(%s)\' -i %s', yq_path, file.path)
-      vim.fn.system(cmd)
+      local yq_expr = 'del(' .. yq_path .. ')'
+      -- Use list args to avoid shell injection
+      vim.fn.system({ 'yq', 'eval', yq_expr, '-i', file.path })
     end
   end
 
@@ -425,6 +430,13 @@ function M.add_from_selection(bufnr)
     default = '',
   }, function(key)
     if not key or key == '' then
+      return
+    end
+
+    -- Validate the translation key format
+    local valid, validation_err = utils.validate_translation_key(key)
+    if not valid then
+      utils.notify('Invalid key: ' .. validation_err, vim.log.levels.ERROR)
       return
     end
 
@@ -519,11 +531,9 @@ function M._perform_auto_translation(key, source_text, source_lang, languages, b
     end
   end
 
-  -- Launch all translations in parallel
+  -- Launch all translations in parallel using async API
   for _, lang in ipairs(target_langs) do
-    -- Use vim.schedule to ensure async execution
-    vim.schedule(function()
-      local translated, err = translator.translate_text(source_text, source_lang, lang)
+    translator.translate_text_async(source_text, source_lang, lang, function(translated, err)
       on_translation_complete(lang, translated, err)
     end)
   end

@@ -103,8 +103,8 @@ function GoogleTranslator:translate_api(text, from_lang, to_lang)
     return nil, 'API key not configured'
   end
 
-  -- Build request URL
-  local url = 'https://translation.googleapis.com/language/translate/v2?key=' .. service_config.api_key
+  -- Build request URL (API key passed via header for security)
+  local url = 'https://translation.googleapis.com/language/translate/v2'
 
   -- Build request body
   local body = vim.fn.json_encode({
@@ -114,10 +114,11 @@ function GoogleTranslator:translate_api(text, from_lang, to_lang)
     format = 'text',
   })
 
-  -- Make HTTP POST request
+  -- Make HTTP POST request with API key in header (more secure than URL)
   local response = curl.post(url, {
     headers = {
       ['Content-Type'] = 'application/json',
+      ['X-Goog-Api-Key'] = service_config.api_key,
     },
     body = body,
   })
@@ -182,8 +183,8 @@ function GoogleTranslator:translate_async(text, from_lang, to_lang, callback)
   local service_config = self:get_config()
 
   if service_config.type == 'api' then
-    -- Async API translation
-    local url = 'https://translation.googleapis.com/language/translate/v2?key=' .. service_config.api_key
+    -- Async API translation (API key in header for security)
+    local url = 'https://translation.googleapis.com/language/translate/v2'
     local body = vim.fn.json_encode({
       q = text,
       source = from_lang,
@@ -194,6 +195,7 @@ function GoogleTranslator:translate_async(text, from_lang, to_lang, callback)
     curl.post(url, {
       headers = {
         ['Content-Type'] = 'application/json',
+        ['X-Goog-Api-Key'] = service_config.api_key,
       },
       body = body,
       callback = function(response)

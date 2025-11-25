@@ -85,7 +85,7 @@ local function translate_buffer(args)
         return
       end
 
-      local languages = vim.tbl_keys(source.files)
+      local languages = vim.tbl_keys(source.files or {})
       if #languages == 0 then
         utils.notify('No translation files found', vim.log.levels.ERROR)
         return

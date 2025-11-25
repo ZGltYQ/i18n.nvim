@@ -188,8 +188,6 @@ function M.get_key_at_position(bufnr, row, col)
           end
         end
       end
-
-      ::continue::
     end
   end
 

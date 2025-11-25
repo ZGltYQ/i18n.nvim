@@ -128,8 +128,8 @@ function M.enable(bufnr)
     end,
   })
 
-  -- Clean up when buffer is deleted
-  vim.api.nvim_create_autocmd('BufDelete', {
+  -- Clean up when buffer is deleted or wiped
+  vim.api.nvim_create_autocmd({ 'BufDelete', 'BufWipeout' }, {
     group = group,
     buffer = bufnr,
     callback = function()
@@ -139,7 +139,7 @@ function M.enable(bufnr)
         buffer_debounced[bufnr].timer:close()
         buffer_debounced[bufnr] = nil
       end
-      vim.api.nvim_del_augroup_by_id(group)
+      pcall(vim.api.nvim_del_augroup_by_id, group)
     end,
   })
 

@@ -24,7 +24,8 @@ local cache = {}
 ---@param file_path string
 ---@return number|nil mtime Modification time in seconds or nil on error
 local function get_file_mtime(file_path)
-  local stat = vim.loop.fs_stat(file_path)
+  local uv = vim.uv or vim.loop
+  local stat = uv.fs_stat(file_path)
   return stat and stat.mtime.sec or nil
 end
 
@@ -208,6 +209,7 @@ end
 
 --- Reload translation source from disk (incrementally checks mtimes)
 ---@param root_dir? string Project root directory (defaults to current buffer's project)
+---@param silent? boolean If true, suppress notification messages (default: false)
 function M.reload(root_dir, silent)
   silent = silent or false
 

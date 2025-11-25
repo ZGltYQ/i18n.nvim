@@ -29,7 +29,8 @@ end
 ---@param path string
 ---@return boolean
 function M.exists(path)
-  local stat = vim.loop.fs_stat(path)
+  local uv = vim.uv or vim.loop
+  local stat = uv.fs_stat(path)
   return stat ~= nil
 end
 
@@ -195,6 +196,39 @@ end
 ---@return string escaped Escaped string
 function M.escape_pattern(str)
   return str:gsub('[%^%$%(%)%%%.%[%]%*%+%-%?]', '%%%1')
+end
+
+--- Validate a translation key format
+--- Keys should contain only alphanumeric chars, dots, underscores, hyphens, and colons
+---@param key string Translation key to validate
+---@return boolean valid True if key is valid
+---@return string|nil error Error message if invalid
+function M.validate_translation_key(key)
+  if not key or key == '' then
+    return false, 'Key cannot be empty'
+  end
+
+  if #key > 500 then
+    return false, 'Key is too long (max 500 characters)'
+  end
+
+  -- Check for valid characters: alphanumeric, dots, underscores, hyphens, colons
+  -- This pattern allows keys like: user.profile.name, common:buttons.submit, my-key_name
+  if not key:match('^[%w%.%_%-%:]+$') then
+    return false, 'Key contains invalid characters (allowed: letters, numbers, dots, underscores, hyphens, colons)'
+  end
+
+  -- Key should not start or end with a separator
+  if key:match('^[%.%_%-%:]') or key:match('[%.%_%-%:]$') then
+    return false, 'Key should not start or end with a separator'
+  end
+
+  -- Key should not have consecutive separators
+  if key:match('[%.%_%-%:][%.%_%-%:]') then
+    return false, 'Key should not have consecutive separators'
+  end
+
+  return true, nil
 end
 
 return M

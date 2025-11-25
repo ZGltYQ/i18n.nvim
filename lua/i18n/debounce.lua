@@ -1,6 +1,9 @@
 ---@class i18n.debounce
 local M = {}
 
+-- Use vim.uv if available (Neovim 0.10+), fallback to vim.loop
+local uv = vim.uv or vim.loop
+
 ---Validates debounce function and timeout
 ---@param fn function
 ---@param ms number
@@ -26,7 +29,7 @@ end
 ---@return userdata timer Timer handle. Remember to call `timer:close()` at the end or you will leak memory!
 function M.debounce_trailing(fn, ms, first)
   validate(fn, ms)
-  local timer = vim.loop.new_timer()
+  local timer = uv.new_timer()
   local wrapped_fn
 
   if not first then
@@ -60,7 +63,7 @@ end
 ---@return userdata timer Timer handle. Remember to call `timer:close()` at the end or you will leak memory!
 function M.throttle_leading(fn, ms)
   validate(fn, ms)
-  local timer = vim.loop.new_timer()
+  local timer = uv.new_timer()
   local running = false
 
   local function wrapped_fn(...)
@@ -83,7 +86,7 @@ end
 ---@return userdata timer Timer handle. Remember to call `timer:close()` at the end or you will leak memory!
 function M.throttle_trailing(fn, ms)
   validate(fn, ms)
-  local timer = vim.loop.new_timer()
+  local timer = uv.new_timer()
   local running = false
 
   local function wrapped_fn(...)
